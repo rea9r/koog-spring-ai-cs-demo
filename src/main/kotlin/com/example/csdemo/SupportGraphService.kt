@@ -1,7 +1,7 @@
 package com.example.csdemo
 
+import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
 import ai.koog.agents.chatMemory.feature.ChatMemory
-import ai.koog.agents.chatMemory.feature.InMemoryChatHistoryProvider
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.dsl.builder.node
@@ -21,8 +21,8 @@ internal fun orderStatusReply(request: SupportRequest): String =
 @Service
 class SupportGraphService(
     private val promptExecutor: PromptExecutor,
+    private val historyProvider: ChatHistoryProvider,
 ) {
-    private val historyProvider = InMemoryChatHistoryProvider()
 
     /**
      * Step 2-1：問い合わせ文を型付きの [SupportRequest] に分類する。

@@ -9,6 +9,7 @@ koog = "0.8.0"
 # Koog core + Spring AI chat bridge
 koog-agents = { module = "ai.koog:koog-agents-jvm", version.ref = "koog" }
 koog-spring-ai-chat = { module = "ai.koog:koog-spring-ai-starter-model-chat", version.ref = "koog" }
+koog-spring-ai-chat-memory = { module = "ai.koog:koog-spring-ai-starter-chat-memory", version.ref = "koog" }
 
 # Spring AI (BOM controls the starter version)
 spring-ai-bom = { module = "org.springframework.ai:spring-ai-bom", version.ref = "spring-ai" }

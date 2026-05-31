@@ -38,6 +38,8 @@ dependencies {
 	// Koog core + Spring AI chat ブリッジ（最小疎通はこの2つで足りる）
 	implementation(libs.koog.agents)
 	implementation(libs.koog.spring.ai.chat)
+	// Spring AI の ChatMemoryRepository を Koog の ChatHistoryProvider に橋渡しする starter
+	implementation(libs.koog.spring.ai.chat.memory)
 
 	// Spring AI OpenAI（version は BOM 管理）
 	implementation(libs.spring.ai.openai)

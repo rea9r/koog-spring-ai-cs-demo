@@ -11,3 +11,9 @@ spring:
           temperature: 1
     model:
       chat: openai
+
+koog:
+  spring:
+    ai:
+      chat-memory:
+        enabled: true
