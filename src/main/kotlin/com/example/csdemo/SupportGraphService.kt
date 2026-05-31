@@ -119,6 +119,21 @@ class SupportGraphService(
                         orderId = null,
                         summary = "返品ポリシーについて知りたい",
                     ),
+                    SupportRequest(
+                        intent = SupportIntent.QUESTION,
+                        orderId = null,
+                        summary = "返金にかかる日数を知りたい",
+                    ),
+                    SupportRequest(
+                        intent = SupportIntent.QUESTION,
+                        orderId = null,
+                        summary = "返金はいつ届くのか目安を知りたい",
+                    ),
+                    SupportRequest(
+                        intent = SupportIntent.QUESTION,
+                        orderId = null,
+                        summary = "配送日数や送料について知りたい",
+                    ),
                 ),
                 fixingParser = StructureFixingParser(
                     model = OpenAIModels.Chat.GPT5Nano,
