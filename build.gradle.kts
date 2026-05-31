@@ -45,8 +45,12 @@ dependencies {
 
 	// Spring AI OpenAI（version は BOM 管理）
 	implementation(libs.spring.ai.openai)
-	// Spring AI VectorStore 本体（SimpleVectorStore など）。Step 4-1 で FAQ を in-memory に積むのに使う
+	// Spring AI VectorStore 本体（VectorStore interface / SearchRequest 等）
 	implementation(libs.spring.ai.vector.store)
+	// Spring AI PgVectorStore auto-config + JdbcTemplate 等を巻き込んでくる
+	implementation(libs.spring.ai.pgvector)
+	// Postgres 向け JDBC ドライバ。実 DB 接続は runtime のみで OK
+	runtimeOnly(libs.postgresql)
 
 	implementation(libs.spring.boot.starter.web)
 	implementation(libs.jackson.module.kotlin)

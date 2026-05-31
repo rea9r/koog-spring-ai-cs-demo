@@ -4,13 +4,19 @@ Koog 0.8.0 + Spring AI 1.1.x の統合（[JetBrains 2026/04 のブログ記事](
 
 ## 動かし方
 
-OPENAI_API_KEY を環境変数に設定して bootRun:
+1. pgvector 拡張入りの Postgres を起動:
+
+```bash
+docker compose up -d
+```
+
+2. OPENAI_API_KEY を環境変数に設定して bootRun:
 
 ```bash
 OPENAI_API_KEY=sk-... ./gradlew bootRun
 ```
 
-起動時に Spring AI の `SimpleVectorStore` Bean が seed FAQ を `text-embedding-3-small` で embed するため、有効な API key が必須（test 実行時も同様）。
+起動時に `PgVectorStore` が schema を作成し、空であれば FAQ を seed する（`text-embedding-3-small` で embed されるため有効な API key が必須）。**volume にデータが残るので 2 回目以降の起動では再 seed されない**（`docker compose down -v` で完全リセット可能）。
 
 ## API エンドポイント
 
@@ -67,7 +73,7 @@ POST /support/handle
                                           }
 ```
 
-- **VectorStore**: in-memory `SimpleVectorStore`（Spring AI）に seed FAQ 6 件を投入。`koog-spring-ai-starter-vector-store` の bridge が `KoogVectorStore` Bean として wrap し、Koog の `SearchStorage<TextDocument, SimilaritySearchRequest>` 経由で叩ける
+- **VectorStore**: pgvector 拡張入り Postgres を Spring AI の `PgVectorStore` で叩く。起動時に schema 作成 + FAQ 6 件 seed（空のときのみ）。`koog-spring-ai-starter-vector-store` の bridge が `VectorStore` Bean を `KoogVectorStore` として wrap し、Koog の `SearchStorage<TextDocument, SimilaritySearchRequest>` 経由で叩ける。実装は Step 4-1 で in-memory な `SimpleVectorStore` から始まり、後段で PgVector に Bean 差し替えのみで移行している
 - **ChatHistoryProvider**: Spring AI `InMemoryChatMemoryRepository` を `koog-spring-ai-starter-chat-memory` bridge 経由で Koog の `ChatHistoryProvider` として登録
 - **PromptExecutor**: `koog-spring-ai-starter-model-chat` が Spring AI の `ChatModel` を Koog の `PromptExecutor` に橋渡し
 
@@ -88,6 +94,9 @@ POST /support/handle
 | **4-4b** | minScore チューニング + `ANSWER_PROMPT` 強化 + retrieval score の構造化ログ |
 | **4-4c** | `StripFaqContextPreProcessor` で ChatMemory に store される user message から FAQ block を剥がす |
 | **(refactor)** | `FaqAugment` object に format を集約、test を `FaqAugmentTest` に切り出し、README 整備 |
+| **(jp 化)** | プロンプト / FAQ seed / `@LLMDescription` / curl サンプルを日本語化。embedding スコア分布が変わり、英語で取れなかった refund query が日本語だと拾えるという副次効果あり |
+| **(classifier 精度)** | `@LLMDescription` に per-intent ルールを書き込み、examples に QUESTION 系の追加例を入れて REFUND vs QUESTION の境界を明示。8/8 期待通りの判定に |
+| **(任意) PgVector 化** | `docker-compose.yml` + `spring-ai-starter-vector-store-pgvector` を入れて、Bean 差し替えだけで infra を pgvector に切り替え。schema 初期化が Spring lifecycle で走るので、seed は `@Bean` factory から `ApplicationRunner` に移動 |
 
 ## Step 4 で実測した RAG 周りの所感
 
@@ -114,10 +123,10 @@ seed FAQ `"Refunds are processed within 5-7 business days after we receive your 
 
 ## 触れていない領域 / 改善余地
 
-- Step 4-4 の任意ステップ：`SimpleVectorStore` -> PGvector への置き換え（Docker Compose 追加、Bean 差し替えだけで動くことの確認）
 - Tool calling / function calling
 - ストリーミング応答
 - retrieval miss 時の hallucination 抑制（`ANSWER_PROMPT` に "FAQ がない場合は具体的な数字を出さずに案内に留める" 系の制約を追加）
+- test 実行は引き続き OPENAI_API_KEY + 起動中の Postgres が必要（context load で seed が走るため）。CI 向けには `@MockBean` で `EmbeddingModel` を差し替える、もしくは `@Profile("!test")` で seeder を切るなど
 
 ## ディレクトリ構成（src 配下）
 

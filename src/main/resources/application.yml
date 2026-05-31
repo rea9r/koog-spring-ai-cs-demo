@@ -1,6 +1,11 @@
 spring:
   application:
     name: koog-spring-ai-cs-demo
+  datasource:
+    # docker-compose.yml の pgvector コンテナを前提
+    url: jdbc:postgresql://localhost:5432/csdemo
+    username: csdemo
+    password: csdemo
   ai:
     openai:
       # API key is read from the OPENAI_API_KEY environment variable.

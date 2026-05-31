@@ -16,6 +16,8 @@ koog-spring-ai-vector-store = { module = "ai.koog:koog-spring-ai-starter-vector-
 spring-ai-bom = { module = "org.springframework.ai:spring-ai-bom", version.ref = "spring-ai" }
 spring-ai-openai = { module = "org.springframework.ai:spring-ai-starter-model-openai" }
 spring-ai-vector-store = { module = "org.springframework.ai:spring-ai-vector-store" }
+spring-ai-pgvector = { module = "org.springframework.ai:spring-ai-starter-vector-store-pgvector" }
+postgresql = { module = "org.postgresql:postgresql" }
 
 # Spring Boot / Kotlin support (versions controlled by BOM)
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
