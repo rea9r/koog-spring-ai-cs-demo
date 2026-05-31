@@ -67,15 +67,18 @@ POST /support/handle
                                  │     └─ FaqAugment.build(query, faqs)  -- FAQ block を prepend
                                  │
                                  └─ AIAgent + singleRunStrategy + ANSWER_PROMPT
-                                       └─ install(ChatMemory.Feature) {
-                                              chatHistoryProvider(historyProvider)
-                                              addPreProcessor(StripFaqContextPreProcessor())  -- store 直前で FAQ block を剥がす
-                                          }
+                                       ├─ toolRegistry = { tools(OrderTools()) }  -- cancelOrder 等の action tool
+                                       ├─ install(ChatMemory.Feature) {
+                                       │      chatHistoryProvider(historyProvider)
+                                       │      addPreProcessor(StripFaqContextPreProcessor())  -- store 直前で FAQ block を剥がす
+                                       │  }
+                                       └─ handleEvents { onToolCallStarting { ... } }  -- tool 呼びを構造化ログ
 ```
 
 - **VectorStore**: pgvector 拡張入り Postgres を Spring AI の `PgVectorStore` で叩く。起動時に schema 作成 + FAQ 6 件 seed（空のときのみ）。`koog-spring-ai-starter-vector-store` の bridge が `VectorStore` Bean を `KoogVectorStore` として wrap し、Koog の `SearchStorage<TextDocument, SimilaritySearchRequest>` 経由で叩ける。実装は Step 4-1 で in-memory な `SimpleVectorStore` から始まり、後段で PgVector に Bean 差し替えのみで移行している
 - **ChatHistoryProvider**: Spring AI `InMemoryChatMemoryRepository` を `koog-spring-ai-starter-chat-memory` bridge 経由で Koog の `ChatHistoryProvider` として登録
 - **PromptExecutor**: `koog-spring-ai-starter-model-chat` が Spring AI の `ChatModel` を Koog の `PromptExecutor` に橋渡し
+- **Tool calling**: `OrderTools : ToolSet` の `@Tool` 付きメソッドをリフレクションで `ToolRegistry` に登録。`singleRunStrategy()` が内部で `nodeLLMRequest -> onToolCall/onAssistantMessage 分岐 -> nodeExecuteTool -> nodeLLMSendToolResult -> ループ` を回しているので、tool 呼ばれたら実行 / 呼ばれなければ plain text を直 return という形で自動的にハンドルされる
 
 ## Step ごとのハイライト
 
@@ -97,6 +100,7 @@ POST /support/handle
 | **(jp 化)** | プロンプト / FAQ seed / `@LLMDescription` / curl サンプルを日本語化。embedding スコア分布が変わり、英語で取れなかった refund query が日本語だと拾えるという副次効果あり |
 | **(classifier 精度)** | `@LLMDescription` に per-intent ルールを書き込み、examples に QUESTION 系の追加例を入れて REFUND vs QUESTION の境界を明示。8/8 期待通りの判定に |
 | **(任意) PgVector 化** | `docker-compose.yml` + `spring-ai-starter-vector-store-pgvector` を入れて、Bean 差し替えだけで infra を pgvector に切り替え。schema 初期化が Spring lifecycle で走るので、seed は `@Bean` factory から `ApplicationRunner` に移動 |
+| **(tool calling)** | `OrderTools : ToolSet` + `@Tool cancelOrder` を新規追加。`answerWithFaqGrounding` の `ToolRegistry` を `EMPTY` から OrderTools 登録に切り替え、`singleRunStrategy()` の内蔵 tool ループに乗せる。`handleEvents { onToolCallStarting }` で tool 呼びを構造化ログ。classifier examples に cancel 例を追加し `ORDER_STATUS` への誤分類を抑止。`ANSWER_PROMPT` に「操作系 tool 利用可、明示依頼は即実行」段落を追加（これがないと LLM は確認待ちに流れて tool を呼ばない） |
 
 ## Step 4 で実測した RAG 周りの所感
 
@@ -121,9 +125,43 @@ seed FAQ `"Refunds are processed within 5-7 business days after we receive your 
 
 → Step 4-4a で classifier を別 AIAgent に切り出し、Kotlin の `when` で routing するようにして解消。「feature scope を分けたいなら agent を分ける」が正攻法。
 
+## Tool calling 周りで実測した所感
+
+### 1. `chatAgentStrategy()` は tool 呼びを強制する設計で、混在 demo にハマる
+
+`chatAgentStrategy()` は内部に `giveFeedbackToCallTools` という補助ノードを持ち、**LLM が tool を 1 度も呼ばずに plain text で答えようとすると「tool 使え」と feedback を投げ返す**。tool で答えるべきタスク（計算機など）だけで構成された agent なら自然に終了するが、`/support/handle` のように「キャンセル系は tool で、FAQ 系は plain text で」混在する用途では、FAQ 質問が `AIAgentMaxNumberOfIterationsReachedException`（50 iter 上限）で死ぬ。
+
+ワークアラウンドとして `SayToUser` built-in tool を `ToolRegistry` に同居させると、LLM は「plain text で答える」代わりに「`SayToUser({"message": "..."})` を呼ぶ」ことで feedback ループを抜けられる（Calculator example の registry に `tool(SayToUser)` が入っていたのはこのため）。ただし **`SayToUser` の実装は `Agent says: ...` を println するだけで、HTTP response には乗らない** — Koog の REPL / コンソールアプリ前提の built-in。HTTP server には不向き。
+
+### 2. `singleRunStrategy()` の中身がそのまま「tool ループ + plain text 直返し」を実装している
+
+docs にある singleRunStrategy の参考実装:
+
+```kotlin
+strategy("single_run") {
+    val nodeCallLLM by nodeLLMRequest()
+    val nodeExecuteTool by nodeExecuteTool()
+    val nodeSendToolResult by nodeLLMSendToolResult()
+
+    edge(nodeStart forwardTo nodeCallLLM)
+    edge(nodeCallLLM forwardTo nodeExecuteTool onToolCall { true })
+    edge(nodeCallLLM forwardTo nodeFinish onAssistantMessage { true })
+    edge(nodeExecuteTool forwardTo nodeSendToolResult)
+    edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCall { true })
+    edge(nodeSendToolResult forwardTo nodeFinish onAssistantMessage { true })
+}
+```
+
+→ tool 呼ばれたら実行 + 結果を LLM に戻して再 LLM、tool 呼ばれなかったら plain text を `nodeFinish` に流す、というシンプルなループ。`chatAgentStrategy()` の tool 強制とは違って、tool を **呼んでも呼ばなくてもよい**。今回の demo の用途にはこちらが素直で、結果として `ToolRegistry { tools(OrderTools()) }` を渡すだけで tool 経路が動く。
+
+### 3. LLM が tool を呼ぶかどうかは ANSWER_PROMPT 次第
+
+`ToolRegistry` に登録するだけでは LLM は tool を必ず呼ぶわけではない。`ANSWER_PROMPT` が FAQ ground 専用の文面しか持っていなかった当初、GPT5Nano は「注文 ABC123 をキャンセルしたいです」に対して **tool を呼ばずに「キャンセルしますか？よろしいですか？」と確認待ち応答** に流れた（FAQ retrieval が同時に走るので、LLM は FAQ ベースの回答にも引っ張られていた）。
+
+`ANSWER_PROMPT` の末尾に **「操作系のツール（例: 注文のキャンセル）が利用可能です。お客様が明示的に該当の操作を希望している場合は、追加で確認を取らずに直接ツールを呼び出してください。」** という 1 段落を追記したら、cancelOrder tool が安定して呼ばれるようになった。tool の存在を system prompt に書いておかないと、小さいモデルは自己判断で tool を呼ぶよりも自然言語で確認する方を選びがち。
+
 ## 触れていない領域 / 改善余地
 
-- Tool calling / function calling
 - ストリーミング応答
 - retrieval miss 時の hallucination 抑制（`ANSWER_PROMPT` に "FAQ がない場合は具体的な数字を出さずに案内に留める" 系の制約を追加）
 - test 実行は引き続き OPENAI_API_KEY + 起動中の Postgres が必要（context load で seed が走るため）。CI 向けには `@MockBean` で `EmbeddingModel` を差し替える、もしくは `@Profile("!test")` で seeder を切るなど
@@ -137,6 +175,7 @@ src/main/kotlin/com/example/csdemo/
   ├── SupportController.kt               -- /support, /support/handle (Step 2 以降)
   ├── SupportTypes.kt                    -- SupportRequest / SupportIntent
   ├── SupportGraphService.kt             -- classify / handle / answerWithFaqGrounding
+  ├── OrderTools.kt                      -- ToolSet 実装、cancelOrder などの action tool
   ├── FaqAugment.kt                      -- FaqAugment.build + StripFaqContextPreProcessor
   ├── ChatMemoryConfig.kt                -- Spring AI ChatMemoryRepository Bean (Step 3-2)
   └── VectorStoreConfig.kt               -- SimpleVectorStore + seed FAQ (Step 4-1)
