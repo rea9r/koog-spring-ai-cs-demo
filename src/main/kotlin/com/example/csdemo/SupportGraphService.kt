@@ -4,9 +4,16 @@ import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
-import ai.koog.agents.core.agent.singleRunStrategy
 import ai.koog.agents.core.dsl.builder.strategy
+import ai.koog.agents.core.dsl.extension.HistoryCompressionStrategy
+import ai.koog.agents.core.dsl.extension.nodeExecuteTool
+import ai.koog.agents.core.dsl.extension.nodeLLMCompressHistory
+import ai.koog.agents.core.dsl.extension.nodeLLMRequest
 import ai.koog.agents.core.dsl.extension.nodeLLMRequestStructured
+import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResult
+import ai.koog.agents.core.dsl.extension.onAssistantMessage
+import ai.koog.agents.core.dsl.extension.onToolCall
+import ai.koog.agents.core.environment.ReceivedToolResult
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
@@ -63,7 +70,7 @@ class SupportGraphService(
             promptExecutor = promptExecutor,
             llmModel = OpenAIModels.Chat.GPT5Nano,
             systemPrompt = ANSWER_PROMPT,
-            strategy = singleRunStrategy(),
+            strategy = answerStrategy(),
             toolRegistry = ToolRegistry { tools(OrderTools()) },
         ) {
             install(ChatMemory.Feature) {
@@ -156,8 +163,60 @@ class SupportGraphService(
             edge(classify forwardTo nodeFinish transformed { it.getOrThrow().data })
         }
 
+    /**
+     * tool 呼びを含む answer agent の strategy。
+     *
+     * `singleRunStrategy()` の中身を自前で展開しつつ、`nodeLLMCompressHistory` を 1 段挟む形:
+     *
+     * ```
+     * Start -> callLLM ──onAssistantMessage→ Finish
+     *             │
+     *             onToolCall
+     *             ↓
+     *           executeTool ──onCondition (history が大きい)→ compressHistory ─→ sendToolResult
+     *                       └──(それ以外)─────────────────────────────────────────→ sendToolResult
+     *                                                                                 │
+     *                                                                          onAssistantMessage→ Finish
+     *                                                                                 │
+     *                                                                          onToolCall→ executeTool（ループ）
+     * ```
+     *
+     * edges は定義順に評価されるため、`compressHistory` 経由の edge を先に書いて、
+     * 閾値以下のときだけ直接 sendToolResult に流れる。
+     */
+    private fun answerStrategy(): AIAgentGraphStrategy<String, String> =
+        strategy<String, String>("support_answer_loop") {
+            val callLLM by nodeLLMRequest()
+            val executeTool by nodeExecuteTool()
+            val sendToolResult by nodeLLMSendToolResult()
+            val compressHistory by nodeLLMCompressHistory<ReceivedToolResult>(
+                strategy = HistoryCompressionStrategy.FromLastNMessages(HISTORY_KEEP_LAST_N),
+                preserveMemory = true,
+            )
+
+            edge(nodeStart forwardTo callLLM)
+            edge(callLLM forwardTo executeTool onToolCall { true })
+            edge(callLLM forwardTo nodeFinish onAssistantMessage { true })
+            edge(
+                executeTool forwardTo compressHistory onCondition { _ ->
+                    val size = llm.readSession { prompt.messages.size }
+                    val hit = size > HISTORY_COMPRESS_THRESHOLD
+                    log.info("History compress check: messages={} threshold={} hit={}", size, HISTORY_COMPRESS_THRESHOLD, hit)
+                    hit
+                },
+            )
+            edge(executeTool forwardTo sendToolResult)
+            edge(compressHistory forwardTo sendToolResult)
+            edge(sendToolResult forwardTo executeTool onToolCall { true })
+            edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
+        }
+
     companion object {
         private val log = LoggerFactory.getLogger(SupportGraphService::class.java)
+
+        // 学習用 demo として 3-5 turn 目あたりで compression が走るよう低めに設定
+        private const val HISTORY_COMPRESS_THRESHOLD = 6
+        private const val HISTORY_KEEP_LAST_N = 4
 
         private val SYSTEM_PROMPT = """
             あなたは EC サイトのカスタマーサポート担当です。簡潔で丁寧に応対してください。
