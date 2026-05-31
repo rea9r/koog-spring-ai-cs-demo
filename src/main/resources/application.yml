@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: koog-spring-ai-cs-demo
+  ai:
+    openai:
+      # API key is read from the OPENAI_API_KEY environment variable.
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: gpt-5-nano
+          temperature: 1
+    model:
+      chat: openai
