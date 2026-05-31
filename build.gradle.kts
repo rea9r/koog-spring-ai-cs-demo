@@ -43,6 +43,8 @@ dependencies {
 
 	// Spring AI OpenAI（version は BOM 管理）
 	implementation(libs.spring.ai.openai)
+	// Spring AI VectorStore 本体（SimpleVectorStore など）。Step 4-1 で FAQ を in-memory に積むのに使う
+	implementation(libs.spring.ai.vector.store)
 
 	implementation(libs.spring.boot.starter.web)
 	implementation(libs.jackson.module.kotlin)

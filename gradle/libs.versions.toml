@@ -14,6 +14,7 @@ koog-spring-ai-chat-memory = { module = "ai.koog:koog-spring-ai-starter-chat-mem
 # Spring AI (BOM controls the starter version)
 spring-ai-bom = { module = "org.springframework.ai:spring-ai-bom", version.ref = "spring-ai" }
 spring-ai-openai = { module = "org.springframework.ai:spring-ai-starter-model-openai" }
+spring-ai-vector-store = { module = "org.springframework.ai:spring-ai-vector-store" }
 
 # Spring Boot / Kotlin support (versions controlled by BOM)
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }

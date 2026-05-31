@@ -9,8 +9,12 @@ spring:
         options:
           model: gpt-5-nano
           temperature: 1
+      embedding:
+        options:
+          model: text-embedding-3-small
     model:
       chat: openai
+      embedding: openai
 
 koog:
   spring:
