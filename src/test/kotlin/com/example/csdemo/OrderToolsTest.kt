@@ -1,57 +1,61 @@
 package com.example.csdemo
 
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class OrderToolsTest {
 
     @Test
-    fun `getOrderStatus returns the dummy in-progress message`() {
+    fun `getOrderStatus returns JSON with processing status`() {
         val tools = OrderTools(InMemoryCancelledOrderStore())
 
-        assertEquals(
-            "ご注文 ABC123 は現在処理中で、まもなく発送されます。",
-            tools.getOrderStatus("ABC123"),
-        )
+        val json = tools.getOrderStatus("ABC123")
+        val result = Json.decodeFromString<GetOrderStatusResult>(json)
+
+        assertEquals("ABC123", result.orderId)
+        assertEquals("processing", result.status)
+        assertNotNull(result.note)
     }
 
     @Test
-    fun `cancelOrder returns acceptance message on first call`() {
+    fun `cancelOrder returns accepted JSON on first call`() {
         val tools = OrderTools(InMemoryCancelledOrderStore())
 
-        val result = tools.cancelOrder("ABC123")
+        val json = tools.cancelOrder("ABC123")
+        val result = Json.decodeFromString<CancelOrderResult>(json)
 
-        assertTrue(
-            result.startsWith("注文 ABC123 のキャンセルを受け付けました"),
-            "expected acceptance message, got: $result",
-        )
+        assertEquals("accepted", result.status)
+        assertEquals("ABC123", result.orderId)
     }
 
     @Test
-    fun `cancelOrder is idempotent — second call reports the existing cancellation`() {
+    fun `cancelOrder returns already_cancelled JSON on second call with the original cancelledAt`() {
         val store = InMemoryCancelledOrderStore()
         val tools = OrderTools(store)
 
-        val first = tools.cancelOrder("ABC123")
-        val second = tools.cancelOrder("ABC123")
+        val firstJson = tools.cancelOrder("ABC123")
+        val secondJson = tools.cancelOrder("ABC123")
 
-        assertTrue(first.startsWith("注文 ABC123 のキャンセルを受け付けました"))
-        assertTrue(
-            second.startsWith("注文 ABC123 は既に "),
-            "expected already-cancelled message, got: $second",
-        )
-        assertTrue(second.endsWith("にキャンセル受付済みです。再度の手続きは不要です。"))
+        val first = Json.decodeFromString<CancelOrderResult>(firstJson)
+        val second = Json.decodeFromString<CancelOrderResult>(secondJson)
+
+        assertEquals("accepted", first.status)
+        assertEquals("already_cancelled", second.status)
+        assertEquals(first.cancelledAt, second.cancelledAt, "second call must preserve the first cancellation time")
     }
 
     @Test
     fun `different orderIds are tracked independently`() {
         val tools = OrderTools(InMemoryCancelledOrderStore())
 
-        val a = tools.cancelOrder("A")
-        val b = tools.cancelOrder("B")
+        val a = Json.decodeFromString<CancelOrderResult>(tools.cancelOrder("A"))
+        val b = Json.decodeFromString<CancelOrderResult>(tools.cancelOrder("B"))
 
-        assertTrue(a.startsWith("注文 A のキャンセルを受け付けました"))
-        assertTrue(b.startsWith("注文 B のキャンセルを受け付けました"))
+        assertEquals("accepted", a.status)
+        assertEquals("A", a.orderId)
+        assertEquals("accepted", b.status)
+        assertEquals("B", b.orderId)
     }
 }
