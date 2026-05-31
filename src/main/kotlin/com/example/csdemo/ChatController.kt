@@ -11,12 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * Step 1: smoke test.
- *
- * Injects the [PromptExecutor] bean that the Koog Spring AI chat starter
- * auto-configures from the existing Spring AI OpenAI setup, then runs a
- * one-shot agent. This is the smallest "it talks to the LLM" wiring; the
- * graph strategy, RAG, memory and persistence come in later steps.
+ * Step 1：PromptExecutor を使って LLM に1往復だけ問い合わせる最小エージェント。
  */
 @RestController
 class ChatController(
