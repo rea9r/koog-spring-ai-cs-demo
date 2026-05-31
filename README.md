@@ -66,7 +66,7 @@ POST /support/handle
                                  │     ├─ KoogVectorStore.search(SimilaritySearchRequest)
                                  │     └─ FaqAugment.build(query, faqs)  -- FAQ block を prepend
                                  │
-                                 └─ AIAgent + singleRunStrategy + ANSWER_PROMPT
+                                 └─ AIAgent + answerStrategy() + ANSWER_PROMPT
                                        ├─ toolRegistry = { tools(OrderTools()) }  -- cancelOrder 等の action tool
                                        ├─ install(ChatMemory.Feature) {
                                        │      chatHistoryProvider(historyProvider)
@@ -75,10 +75,25 @@ POST /support/handle
                                        └─ handleEvents { onToolCallStarting { ... } }  -- tool 呼びを構造化ログ
 ```
 
+`answerStrategy()` の中身 (singleRunStrategy() を inline 展開 + history compression):
+
+```
+Start -> callLLM ──onAssistantMessage→ Finish (plain text)
+            │
+            onToolCall
+            ↓
+          executeTool ──onCondition (messages > THRESHOLD)→ compressHistory ─→ sendToolResult
+                      └──(それ以外)──────────────────────────────────────────→ sendToolResult
+                                                                                    │
+                                                                             onAssistantMessage→ Finish
+                                                                                    │
+                                                                             onToolCall→ executeTool (ループ)
+```
+
 - **VectorStore**: pgvector 拡張入り Postgres を Spring AI の `PgVectorStore` で叩く。起動時に schema 作成 + FAQ 6 件 seed（空のときのみ）。`koog-spring-ai-starter-vector-store` の bridge が `VectorStore` Bean を `KoogVectorStore` として wrap し、Koog の `SearchStorage<TextDocument, SimilaritySearchRequest>` 経由で叩ける。実装は Step 4-1 で in-memory な `SimpleVectorStore` から始まり、後段で PgVector に Bean 差し替えのみで移行している
 - **ChatHistoryProvider**: Spring AI `InMemoryChatMemoryRepository` を `koog-spring-ai-starter-chat-memory` bridge 経由で Koog の `ChatHistoryProvider` として登録
 - **PromptExecutor**: `koog-spring-ai-starter-model-chat` が Spring AI の `ChatModel` を Koog の `PromptExecutor` に橋渡し
-- **Tool calling**: `OrderTools : ToolSet` の `@Tool` 付きメソッドをリフレクションで `ToolRegistry` に登録。`singleRunStrategy()` が内部で `nodeLLMRequest -> onToolCall/onAssistantMessage 分岐 -> nodeExecuteTool -> nodeLLMSendToolResult -> ループ` を回しているので、tool 呼ばれたら実行 / 呼ばれなければ plain text を直 return という形で自動的にハンドルされる
+- **Tool calling**: `OrderTools : ToolSet` の `@Tool` 付きメソッドをリフレクションで `ToolRegistry` に登録。`answerStrategy()` は `singleRunStrategy()` と同じ tool ループ構造を自前で展開しつつ、`executeTool` の後段に `nodeLLMCompressHistory` を条件付き edge で挟んで、長い会話で履歴を要約圧縮できるようにしている。`HistoryCompressionStrategy.FromLastNMessages(N)` で直近 N 件以外を summary に置換
 
 ## Step ごとのハイライト
 
@@ -101,6 +116,7 @@ POST /support/handle
 | **(classifier 精度)** | `@LLMDescription` に per-intent ルールを書き込み、examples に QUESTION 系の追加例を入れて REFUND vs QUESTION の境界を明示。8/8 期待通りの判定に |
 | **(任意) PgVector 化** | `docker-compose.yml` + `spring-ai-starter-vector-store-pgvector` を入れて、Bean 差し替えだけで infra を pgvector に切り替え。schema 初期化が Spring lifecycle で走るので、seed は `@Bean` factory から `ApplicationRunner` に移動 |
 | **(tool calling)** | `OrderTools : ToolSet` + `@Tool cancelOrder` を新規追加。`answerWithFaqGrounding` の `ToolRegistry` を `EMPTY` から OrderTools 登録に切り替え、`singleRunStrategy()` の内蔵 tool ループに乗せる。`handleEvents { onToolCallStarting }` で tool 呼びを構造化ログ。classifier examples に cancel 例を追加し `ORDER_STATUS` への誤分類を抑止。`ANSWER_PROMPT` に「操作系 tool 利用可、明示依頼は即実行」段落を追加（これがないと LLM は確認待ちに流れて tool を呼ばない） |
+| **(strategy inline + history compression)** | `singleRunStrategy()` を捨てて、`answerStrategy()` という同等の自前 strategy を `strategy<String, String>(...) { ... }` で inline 展開。`executeTool` の後段に `nodeLLMCompressHistory<ReceivedToolResult>` を `onCondition { messages.size > THRESHOLD }` 付き edge で挟み、長セッションで履歴を `FromLastNMessages(N)` で要約圧縮。**実測で観察された副作用**: compress 後に LLM が過去処理済みの注文 ID を再キャンセルしようとする (context 損失) — 詳細は所感セクション 5 |
 
 ## Step 4 で実測した RAG 周りの所感
 
@@ -159,6 +175,41 @@ strategy("single_run") {
 `ToolRegistry` に登録するだけでは LLM は tool を必ず呼ぶわけではない。`ANSWER_PROMPT` が FAQ ground 専用の文面しか持っていなかった当初、GPT5Nano は「注文 ABC123 をキャンセルしたいです」に対して **tool を呼ばずに「キャンセルしますか？よろしいですか？」と確認待ち応答** に流れた（FAQ retrieval が同時に走るので、LLM は FAQ ベースの回答にも引っ張られていた）。
 
 `ANSWER_PROMPT` の末尾に **「操作系のツール（例: 注文のキャンセル）が利用可能です。お客様が明示的に該当の操作を希望している場合は、追加で確認を取らずに直接ツールを呼び出してください。」** という 1 段落を追記したら、cancelOrder tool が安定して呼ばれるようになった。tool の存在を system prompt に書いておかないと、小さいモデルは自己判断で tool を呼ぶよりも自然言語で確認する方を選びがち。
+
+### 4. `singleRunStrategy()` を自前展開して `nodeLLMCompressHistory` を挟む
+
+公式提供の `singleRunStrategy()` をそのまま使う方針から一歩進めて、同じグラフ構造を `strategy<String, String>(...) { ... }` で inline 展開。`executeTool` の後段に `nodeLLMCompressHistory<ReceivedToolResult>` を `onCondition { ... }` 付き edge で挟み、tool 実行後に履歴が肥大していたら圧縮を経由してから `sendToolResult` に流れる形にした。
+
+```kotlin
+val executeTool by nodeExecuteTool()
+val compressHistory by nodeLLMCompressHistory<ReceivedToolResult>(
+    strategy = HistoryCompressionStrategy.FromLastNMessages(4),
+    preserveMemory = true,
+)
+val sendToolResult by nodeLLMSendToolResult()
+
+edge(executeTool forwardTo compressHistory onCondition { _ ->
+    llm.readSession { prompt.messages.size } > THRESHOLD
+})
+edge(executeTool forwardTo sendToolResult)         // 上の edge にマッチしないとき
+edge(compressHistory forwardTo sendToolResult)
+```
+
+ポイント:
+- **edges are checked in the order they are defined** なので、条件付き edge を先に書き、fallback の無条件 edge を後に置く
+- `onCondition` は `AIAgentEdgeBuilderIntermediate` のメソッド（top-level の `onToolCall`/`onAssistantMessage` とは違う）。import 不要で chain で呼べる
+- lambda 内で `llm.readSession { ... }` で現 LLM session の prompt にアクセスできる
+
+### 5. `FromLastNMessages` 圧縮後に LLM が context を見失う副作用
+
+`HistoryCompressionStrategy.FromLastNMessages(4)` で同 session の cancel 系発話を 5-8 turn 連投すると、threshold (messages > 6) を超えたタイミングで compression が発火し、prompt.messages 数が圧縮後 6 程度に収まることを観察できた。
+
+ただし圧縮後の turn で LLM の挙動に副作用が出た: **ユーザが ABC4 のキャンセルを依頼したのに、LLM が cancelOrder(ABC4) を呼んだ直後に cancelOrder(ABC2) も追加で呼ぶ** — 過去 turn で処理済みの ABC2 を「やり残し」と誤認した形。`FromLastNMessages` は直近 N 件以外を TLDR 形式で summary message に圧縮するため、その summary に固有名詞 (注文 ID) が残ると LLM が「未処理」と取って tool を再起動してしまう。
+
+対処の方向性 (このリポジトリではまだ未実装):
+- `ANSWER_PROMPT` に「過去 turn で処理済みの注文を再キャンセルしない」を明記
+- `HistoryCompressionStrategy.WholeHistory` / `Chunked` / `NoCompression` 等の挙動と比較する
+- そもそも `ChatMemory.Feature` がデフォルトで tool call / tool result message を persist しない (今回観察)、つまり「ChatMemory 経由の永続履歴」と「単 AIAgent 内の prompt history」を区別する設計が必要
 
 ## 触れていない領域 / 改善余地
 
