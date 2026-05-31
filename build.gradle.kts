@@ -1,9 +1,9 @@
 plugins {
-	kotlin("jvm") version "2.3.10"
-	kotlin("plugin.spring") version "2.3.10"
-	kotlin("plugin.serialization") version "2.3.10"
-	id("org.springframework.boot") version "3.5.14"
-	id("io.spring.dependency-management") version "1.1.7"
+	alias(libs.plugins.kotlin.jvm)
+	alias(libs.plugins.kotlin.spring)
+	alias(libs.plugins.kotlin.serialization)
+	alias(libs.plugins.spring.boot)
+	alias(libs.plugins.spring.dependency.management)
 }
 
 group = "com.example"
@@ -34,28 +34,26 @@ configurations.all {
 	}
 }
 
-extra["springAiVersion"] = "1.1.4"
-
 dependencies {
 	// Koog core + Spring AI chat ブリッジ（最小疎通はこの2つで足りる）
-	implementation("ai.koog:koog-agents-jvm:0.8.0")
-	implementation("ai.koog:koog-spring-ai-starter-model-chat:0.8.0")
+	implementation(libs.koog.agents)
+	implementation(libs.koog.spring.ai.chat)
 
-	// Spring AI OpenAI（version は BOM 管理なので無指定）
-	implementation("org.springframework.ai:spring-ai-starter-model-openai")
+	// Spring AI OpenAI（version は BOM 管理）
+	implementation(libs.spring.ai.openai)
 
-	implementation("org.springframework.boot:spring-boot-starter-web")
-	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-	implementation("org.jetbrains.kotlin:kotlin-reflect")
+	implementation(libs.spring.boot.starter.web)
+	implementation(libs.jackson.module.kotlin)
+	implementation(libs.kotlin.reflect)
 
-	testImplementation("org.springframework.boot:spring-boot-starter-test")
-	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
-	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+	testImplementation(libs.spring.boot.starter.test)
+	testImplementation(libs.kotlin.test.junit5)
+	testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 dependencyManagement {
 	imports {
-		mavenBom("org.springframework.ai:spring-ai-bom:${property("springAiVersion")}")
+		mavenBom(libs.spring.ai.bom.get().toString())
 	}
 }
 
