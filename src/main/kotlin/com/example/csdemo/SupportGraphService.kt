@@ -24,9 +24,6 @@ import ai.koog.spring.ai.vectorstore.KoogVectorStore
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
-internal fun orderStatusReply(request: SupportRequest): String =
-    "ご注文 ${request.orderId ?: "不明"} は現在処理中で、まもなく発送されます。"
-
 @Service
 class SupportGraphService(
     private val promptExecutor: PromptExecutor,
@@ -50,20 +47,19 @@ class SupportGraphService(
     }
 
     /**
-     * Step 4-4：classifier と answer を別 agent に分離する。
-     * - classifier ([classify]) は ChatMemory なし。`/support` でも再利用される
-     * - ORDER_STATUS は LLM を呼ばずに [orderStatusReply] を直接返す
-     * - その他は FAQ 検索結果を user message に prepend したうえで、ChatMemory 付き answer agent に投げる
+     * A4：classifier 駆動の `when` 分岐を排し、すべての user prompt を tool ループに統一する。
      *
-     * これにより ChatMemory は answer 経路だけに効き、classifier の判定が会話履歴で揺れない。
+     * before: classify -> when (intent) { ORDER_STATUS -> orderStatusReply; else -> answer }
+     * after : answer agent 一本（注文操作は getOrderStatus / cancelOrder tool として LLM に委ねる）
+     *
+     * Kotlin orchestration から LLM tool dispatch への移行。classifier の境界揺れ（例: A5 で観察した
+     * 「ABC3 のキャンセル発話が ORDER_STATUS と誤判定される」現象）が経路選択を破壊しなくなり、
+     * tool の `@LLMDescription` が「どのリクエストでどの tool を呼ぶか」の判断基準として機能する。
+     *
+     * classifier ([classify]) は `/support` endpoint で intent 観察用に残るが、`handle` からは呼ばない。
      */
-    suspend fun handle(userPrompt: String, sessionId: String): String {
-        val request = classify(userPrompt)
-        return when (request.intent) {
-            SupportIntent.ORDER_STATUS -> orderStatusReply(request)
-            else -> answerWithFaqGrounding(userPrompt, sessionId)
-        }
-    }
+    suspend fun handle(userPrompt: String, sessionId: String): String =
+        answerWithFaqGrounding(userPrompt, sessionId)
 
     private suspend fun answerWithFaqGrounding(userPrompt: String, sessionId: String): String {
         val augmentedPrompt = augmentWithFaq(userPrompt)
@@ -243,9 +239,11 @@ class SupportGraphService(
             FAQ セクションが含まれていない場合は、お客様の実際の質問にだけ答え、
             聞かれていないポリシー詳細を自発的に持ち出さないでください。
 
-            操作系のツール（例: 注文のキャンセル）が利用可能です。お客様が明示的に該当の操作を
-            希望している場合は、追加で確認を取らずに直接ツールを呼び出してください。
-            操作後にツールの実行結果を踏まえてお客様に結果をお伝えしてください。
+            操作系・情報取得系のツールが利用可能です:
+            - getOrderStatus: 特定の注文 ID の配送状況を取得
+            - cancelOrder: 特定の注文 ID をキャンセル
+            お客様が明示的に該当の操作・情報取得を希望している場合は、追加で確認を取らずに
+            直接ツールを呼び出してください。操作後はツールの実行結果を踏まえてお客様にお伝えしてください。
         """.trimIndent()
     }
 }

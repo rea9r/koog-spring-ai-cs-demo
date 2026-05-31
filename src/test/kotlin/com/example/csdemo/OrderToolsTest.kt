@@ -1,9 +1,20 @@
 package com.example.csdemo
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class OrderToolsTest {
+
+    @Test
+    fun `getOrderStatus returns the dummy in-progress message`() {
+        val tools = OrderTools(InMemoryCancelledOrderStore())
+
+        assertEquals(
+            "ご注文 ABC123 は現在処理中で、まもなく発送されます。",
+            tools.getOrderStatus("ABC123"),
+        )
+    }
 
     @Test
     fun `cancelOrder returns acceptance message on first call`() {
