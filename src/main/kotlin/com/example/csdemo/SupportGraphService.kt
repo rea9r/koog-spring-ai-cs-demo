@@ -4,22 +4,29 @@ import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
+import ai.koog.agents.core.dsl.builder.node
 import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.extension.nodeExecuteTool
 import ai.koog.agents.core.dsl.extension.nodeLLMCompressHistory
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
+import ai.koog.agents.core.dsl.extension.nodeLLMRequestStreamingAndSendResults
 import ai.koog.agents.core.dsl.extension.nodeLLMRequestStructured
 import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResult
 import ai.koog.agents.core.dsl.extension.onAssistantMessage
 import ai.koog.agents.core.dsl.extension.onToolCall
 import ai.koog.agents.core.environment.ReceivedToolResult
+import ai.koog.agents.core.environment.result
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
+import ai.koog.prompt.message.Message
+import ai.koog.prompt.streaming.StreamFrame
+import ai.koog.prompt.streaming.toMessageResponses
 import ai.koog.rag.base.storage.search.SimilaritySearchRequest
 import ai.koog.spring.ai.vectorstore.KoogVectorStore
+import kotlinx.coroutines.flow.toList
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
@@ -80,6 +87,29 @@ class SupportGraphService(
         return runAnswerAgent(input, sessionId)
     }
 
+    /**
+     * Step 5-A9 (A11): [handle] の streaming 版。tool ループ込みで全 LLM call を streaming に置き換え、
+     * event handler の `onLLMStreamingFrameReceived` から [onFrame] callback に各 [StreamFrame] を流す。
+     *
+     * tool 呼びがある経路では:
+     * - 1 回目 LLM (tool call 含む) -> ToolCallDelta / ToolCallComplete が onFrame に
+     * - tool 実行 (sync)
+     * - 2 回目 LLM (tool result を踏まえた assistant 応答) -> TextDelta / TextComplete が onFrame に
+     *
+     * の流れで callback が呼ばれる。AIAgent.run の戻り値は最終 assistant 応答の文字列 (sync) で、
+     * controller 側では「streaming で逐次 SSE を送りつつ最後に complete」が成立する。
+     */
+    suspend fun handleStream(
+        userPrompt: String,
+        sessionId: String,
+        onFrame: suspend (StreamFrame) -> Unit,
+    ): String {
+        val skipFaq = looksLikeOrderOperation(userPrompt)
+        log.info("Routing decision (stream): skipFaqRetrieval={} prompt='{}'", skipFaq, userPrompt.take(60))
+        val input = if (skipFaq) userPrompt else augmentWithFaq(userPrompt)
+        return runAnswerAgentStreaming(input, sessionId, onFrame)
+    }
+
     private suspend fun runAnswerAgent(input: String, sessionId: String): String {
         val agent = AIAgent(
             promptExecutor = promptExecutor,
@@ -96,6 +126,35 @@ class SupportGraphService(
             handleEvents {
                 onToolCallStarting { e ->
                     log.info("Tool called: name={} args={}", e.toolName, e.toolArgs)
+                }
+            }
+        }
+        return agent.run(input, sessionId)
+    }
+
+    private suspend fun runAnswerAgentStreaming(
+        input: String,
+        sessionId: String,
+        onFrame: suspend (StreamFrame) -> Unit,
+    ): String {
+        val agent = AIAgent(
+            promptExecutor = promptExecutor,
+            llmModel = OpenAIModels.Chat.GPT5Nano,
+            systemPrompt = ANSWER_PROMPT,
+            strategy = answerStrategyStreaming(),
+            toolRegistry = ToolRegistry { tools(orderTools) },
+        ) {
+            install(ChatMemory.Feature) {
+                chatHistoryProvider(historyProvider)
+                addPreProcessor(WindowSizePreProcessor(chatMemoryWindow.windowSize))
+                addPreProcessor(StripFaqContextPreProcessor())
+            }
+            handleEvents {
+                onToolCallStarting { e ->
+                    log.info("Tool called (stream): name={} args={}", e.toolName, e.toolArgs)
+                }
+                onLLMStreamingFrameReceived { ctx ->
+                    onFrame(ctx.streamFrame)
                 }
             }
         }
@@ -225,6 +284,54 @@ class SupportGraphService(
             edge(compressHistory forwardTo sendToolResult)
             edge(sendToolResult forwardTo executeTool onToolCall { true })
             edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
+        }
+
+    /**
+     * Step 5-A9 (A11): [answerStrategy] の streaming 版。
+     *
+     * 違い:
+     * - `nodeLLMRequest` -> `nodeLLMRequestStreamingAndSendResults<String>` (output 型が `List<Message.Response>`)
+     * - `nodeLLMSendToolResult` -> 自前 streaming 版 (内部で `requestLLMStreaming().toList().toMessageResponses()`)
+     * - edge は `.transformed { it.first() }` で `List<Message.Response>` -> `Message.Response` に縮約してから
+     *   `onToolCall` / `onAssistantMessage` で分岐
+     *
+     * streaming 自体は agent 内部で消費される (外から見ると sync)。event handler の
+     * `onLLMStreamingFrameReceived` で各 [StreamFrame] を hook できるので、その経由で SSE に流す。
+     */
+    private fun answerStrategyStreaming(): AIAgentGraphStrategy<String, String> =
+        strategy<String, String>("support_answer_loop_stream") {
+            val callLLM by nodeLLMRequestStreamingAndSendResults<String>()
+            val executeTool by nodeExecuteTool()
+            val sendToolResult by node<ReceivedToolResult, List<Message.Response>>("send_tool_result_stream") { result ->
+                llm.writeSession {
+                    appendPrompt {
+                        tool {
+                            result(result)
+                        }
+                    }
+                    requestLLMStreaming().toList().toMessageResponses().also { appendPrompt { messages(it) } }
+                }
+            }
+            val compressHistory by nodeLLMCompressHistory<ReceivedToolResult>(
+                strategy = compressionConfig.resolveStrategy(),
+                preserveMemory = true,
+            )
+
+            edge(nodeStart forwardTo callLLM)
+            edge(callLLM forwardTo executeTool transformed { it.first() } onToolCall { true })
+            edge(callLLM forwardTo nodeFinish transformed { it.first() } onAssistantMessage { true })
+            edge(
+                executeTool forwardTo compressHistory onCondition { _ ->
+                    val size = llm.readSession { prompt.messages.size }
+                    val hit = size > compressionConfig.threshold
+                    log.info("History compress check (stream): messages={} threshold={} hit={}", size, compressionConfig.threshold, hit)
+                    hit
+                },
+            )
+            edge(executeTool forwardTo sendToolResult)
+            edge(compressHistory forwardTo sendToolResult)
+            edge(sendToolResult forwardTo executeTool transformed { it.first() } onToolCall { true })
+            edge(sendToolResult forwardTo nodeFinish transformed { it.first() } onAssistantMessage { true })
         }
 
     companion object {
