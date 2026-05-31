@@ -4,20 +4,16 @@ import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
-import ai.koog.agents.core.annotation.ExperimentalAgentsApi
 import ai.koog.agents.core.dsl.builder.node
 import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.builder.subgraph
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
 import ai.koog.agents.core.dsl.extension.nodeLLMRequestStructured
 import ai.koog.agents.core.tools.ToolRegistry
-import ai.koog.agents.longtermmemory.feature.LongTermMemory
-import ai.koog.agents.longtermmemory.retrieval.LastUserMessageQueryExtractor
-import ai.koog.agents.longtermmemory.retrieval.SimilaritySearchStrategy
-import ai.koog.agents.longtermmemory.retrieval.augmentation.SystemPromptAugmenter
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
+import ai.koog.rag.base.storage.search.SimilaritySearchRequest
 import ai.koog.spring.ai.vectorstore.KoogVectorStore
 import org.springframework.stereotype.Service
 
@@ -46,14 +42,9 @@ class SupportGraphService(
     }
 
     /**
-     * Step 2-2 / 3 / 4：問い合わせを intent で分岐して回答する。
-     * sessionId 単位で会話履歴を引き継ぎ、FAQ VectorStore からの retrieval で prompt を augment する。
-     *
-     * LongTermMemory feature は graph 内のすべての LLM ノード（in-graph classifier + generalAnswer）に
-     * 横断的に効く。Step 4-2 では `enableAutomaticRetrieval = true` で全 LLM 呼び出しに
-     * FAQ context を inject する設定にしている。intent 別に retrieval を分ける等の改善は Step 4-3 以降。
+     * Step 2-2 / 3 / 4：問い合わせを intent で分岐して回答する。sessionId 単位で会話履歴を引き継ぐ。
+     * FAQ 取得は [routingStrategy] 内の `retrieveContext` ノードで非 ORDER_STATUS 経路のみに適用される。
      */
-    @OptIn(ExperimentalAgentsApi::class)
     suspend fun handle(userPrompt: String, sessionId: String): String {
         val agent = AIAgent(
             promptExecutor = promptExecutor,
@@ -64,21 +55,6 @@ class SupportGraphService(
         ) {
             install(ChatMemory.Feature) {
                 chatHistoryProvider(historyProvider)
-            }
-            install(LongTermMemory.Feature) {
-                retrieval {
-                    storage = vectorStore
-                    queryExtractor = LastUserMessageQueryExtractor()
-                    searchStrategy = SimilaritySearchStrategy(topK = 3, similarityThreshold = 0.5)
-                    promptAugmenter = SystemPromptAugmenter()
-                    enableAutomaticRetrieval = true
-                }
-                ingestion {
-                    // store はインターフェース要件で必須だが、チャット会話を FAQ store に書き込むのは
-                    // 学習用途として望ましくないので automatic ingestion はオフにしている。
-                    storage = vectorStore
-                    enableAutomaticIngestion = false
-                }
             }
         }
         return agent.run(userPrompt, sessionId)
@@ -133,13 +109,15 @@ class SupportGraphService(
      *       ├─ isFailure -> Finish ("Sorry, ...")
      *       └─ isSuccess -> extractRequest (identity)
      *             ├─ intent == ORDER_STATUS -> orderStatusFlow (固定文を返す subgraph) -> Finish
-     *             └─ otherwise               -> generalAnswer  (LLM 自由文)              -> Finish
+     *             └─ otherwise               -> retrieveContext (FAQ grounding) -> generalAnswer -> Finish
      * ```
      *
      * `extractRequest` は identity ノード。`classify` の出力は `Result<...>` 型なので、
      * intent で条件分岐するには先に `Result` を剥がして [SupportRequest] 本体を取り出す必要がある。
-     * 取り出しを 1 ノードに切り出すと、ORDER_STATUS とその他の両方の onCondition で
-     * 同じ [SupportRequest] を再利用でき、DSL が読みやすくなる。
+     *
+     * Step 4-3: 非 ORDER_STATUS 経路のみ `retrieveContext` を通して FAQ を検索し、
+     * 取得結果を user message に prepend したうえで LLM に渡す。LongTermMemory feature の
+     * automatic retrieval は使わない（classifier ノードに retrieval が掛かるのを避けるため）。
      */
     private fun routingStrategy(): AIAgentGraphStrategy<String, String> =
         strategy<String, String>("support_routing") {
@@ -169,6 +147,26 @@ class SupportGraphService(
                 nodeStart then answer then nodeFinish
             }
 
+            val retrieveContext by node<String, String> { query ->
+                val results = vectorStore.search(
+                    SimilaritySearchRequest(
+                        queryText = query,
+                        limit = 3,
+                        minScore = 0.5,
+                    ),
+                )
+                if (results.isEmpty()) {
+                    query
+                } else {
+                    buildString {
+                        appendLine("Reference the following FAQ items if relevant:")
+                        results.forEach { appendLine("- ${it.document.content}") }
+                        appendLine()
+                        append("Customer question: $query")
+                    }
+                }
+            }
+
             val generalAnswer by nodeLLMRequest()
 
             // 分類実行
@@ -184,9 +182,10 @@ class SupportGraphService(
 
             // intent で分岐
             edge(extractRequest forwardTo orderStatusFlow onCondition { it.intent == SupportIntent.ORDER_STATUS })
-            edge(extractRequest forwardTo generalAnswer onCondition { it.intent != SupportIntent.ORDER_STATUS } transformed { it.summary })
+            edge(extractRequest forwardTo retrieveContext onCondition { it.intent != SupportIntent.ORDER_STATUS } transformed { it.summary })
 
             // 各経路から Finish へ
+            edge(retrieveContext forwardTo generalAnswer)
             edge(orderStatusFlow forwardTo nodeFinish)
             edge(generalAnswer forwardTo nodeFinish transformed { it.content })
         }
