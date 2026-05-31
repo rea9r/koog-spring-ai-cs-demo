@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * Step 2-1：POST /support は分類結果 [SupportRequest] を JSON で返す。
+ * Step 2：EC のカスタマーサポート問い合わせを Koog グラフで分類し、intent に応じて応答するコントローラ。
  */
 @RestController
 class SupportController(
@@ -16,6 +16,13 @@ class SupportController(
 	fun support(@RequestBody request: SupportQuery): SupportRequest = runBlocking {
 		supportGraphService.classify(request.prompt)
 	}
+
+	@PostMapping("/support/handle")
+	fun handle(@RequestBody request: SupportQuery): SupportResponse = runBlocking {
+		SupportResponse(supportGraphService.handle(request.prompt))
+	}
 }
 
 data class SupportQuery(val prompt: String)
+
+data class SupportResponse(val response: String)
