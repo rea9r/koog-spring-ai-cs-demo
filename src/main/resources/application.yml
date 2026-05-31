@@ -35,3 +35,6 @@ koog:
       keep-last-n: 4
       chunk-size: 4
       threshold: 6
+    chat-memory:
+      # A6 で発見した「pattern 引きずり」対策。直近 N 件だけ load/store で keep
+      window-size: 4

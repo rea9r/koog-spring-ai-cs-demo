@@ -30,6 +30,7 @@ class SupportGraphService(
     private val vectorStore: KoogVectorStore,
     private val orderTools: OrderTools,
     private val compressionConfig: HistoryCompressionConfig,
+    private val chatMemoryWindow: ChatMemoryWindowProperties,
 ) {
 
     init {
@@ -40,6 +41,7 @@ class SupportGraphService(
             compressionConfig.chunkSize,
             compressionConfig.threshold,
         )
+        log.info("ChatMemory window config: windowSize={}", chatMemoryWindow.windowSize)
     }
 
 
@@ -88,6 +90,7 @@ class SupportGraphService(
         ) {
             install(ChatMemory.Feature) {
                 chatHistoryProvider(historyProvider)
+                addPreProcessor(WindowSizePreProcessor(chatMemoryWindow.windowSize))
                 addPreProcessor(StripFaqContextPreProcessor())
             }
             handleEvents {
