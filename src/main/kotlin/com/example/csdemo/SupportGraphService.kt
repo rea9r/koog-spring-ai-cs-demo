@@ -13,6 +13,7 @@ import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
 import ai.koog.rag.base.storage.search.SimilaritySearchRequest
 import ai.koog.spring.ai.vectorstore.KoogVectorStore
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 internal fun orderStatusReply(request: SupportRequest): String =
@@ -60,7 +61,7 @@ class SupportGraphService(
         val agent = AIAgent(
             promptExecutor = promptExecutor,
             llmModel = OpenAIModels.Chat.GPT5Nano,
-            systemPrompt = SYSTEM_PROMPT,
+            systemPrompt = ANSWER_PROMPT,
             strategy = singleRunStrategy(),
             toolRegistry = ToolRegistry.EMPTY,
         ) {
@@ -78,6 +79,12 @@ class SupportGraphService(
                 limit = 3,
                 minScore = 0.5,
             ),
+        )
+        log.info(
+            "FAQ retrieval: query='{}' hits={} scores={}",
+            query.take(60),
+            results.size,
+            results.map { "%.3f".format(it.score.value) },
         )
         return if (results.isEmpty()) {
             query
@@ -132,8 +139,32 @@ class SupportGraphService(
         }
 
     companion object {
+        private val log = LoggerFactory.getLogger(SupportGraphService::class.java)
+
         private val SYSTEM_PROMPT = """
             You are an e-commerce customer support assistant. Be helpful, concise, and polite.
+        """.trimIndent()
+
+        /**
+         * Step 4-4b: answer agent 用に締めた system prompt。
+         * FAQ context が user message に含まれている場合だけ参照させ、
+         * 含まれていなければ尋ねられていない policy 詳細を持ち出させない。
+         * threshold をすり抜けた無関係な FAQ がぶら下がってきても無視させる節も含む。
+         */
+        private val ANSWER_PROMPT = """
+            You are an e-commerce customer support assistant. Be helpful, concise, and polite.
+
+            When the user message includes a "Reference the following FAQ items" section
+            AND those items address the customer's actual question, treat those items as
+            your only source for company policy facts (timeframes, exceptions, etc.).
+            Do not invent details beyond what is listed.
+
+            If the listed FAQ items are unrelated to the customer's actual question
+            (e.g., they greeted you, or asked something off-policy), ignore the items
+            and respond naturally without bringing up policy.
+
+            When no FAQ section is provided, answer the customer's actual question and do
+            not volunteer unrelated policy details.
         """.trimIndent()
     }
 }
