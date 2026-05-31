@@ -2,7 +2,6 @@ package com.example.csdemo
 
 import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
 import ai.koog.agents.chatMemory.feature.ChatMemory
-import ai.koog.agents.chatMemory.feature.ChatMemoryPreProcessor
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.agent.singleRunStrategy
@@ -12,7 +11,6 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
-import ai.koog.prompt.message.Message
 import ai.koog.rag.base.storage.search.SimilaritySearchRequest
 import ai.koog.spring.ai.vectorstore.KoogVectorStore
 import org.slf4j.LoggerFactory
@@ -20,37 +18,6 @@ import org.springframework.stereotype.Service
 
 internal fun orderStatusReply(request: SupportRequest): String =
     "Your order ${request.orderId ?: "unknown"} is being processed and will ship soon."
-
-/**
- * Step 4-4c：ChatMemory に store される直前の user message から FAQ augment ブロックを剥がす。
- *
- * `augmentWithFaq` が組み立てた "Reference the following FAQ items..." 付き user message は
- * そのまま store すると次ターン以降の履歴で replay されてしまう（FAQ snippet が user の発言として
- * 永続化される）。この preprocessor は store 直前に FAQ ヘッダを検出して
- * `"Customer question: "` 以降のオリジナル query 文字列に書き戻す。
- *
- * preprocessors は load 時にも走るが、上記ロジックで stored 値が既に clean になっていれば
- * 既存履歴に対しては no-op になる（idempotent）。
- */
-internal class StripFaqContextPreProcessor : ChatMemoryPreProcessor {
-    override fun preprocess(messages: List<Message>): List<Message> = messages.map { msg ->
-        if (msg is Message.User && msg.content.startsWith(FAQ_PREFIX)) {
-            val original = msg.content.substringAfterLast(QUESTION_MARKER, "").trim()
-            if (original.isNotEmpty()) {
-                Message.User(content = original, metaInfo = msg.metaInfo, cacheControl = msg.cacheControl)
-            } else {
-                msg
-            }
-        } else {
-            msg
-        }
-    }
-
-    private companion object {
-        private const val FAQ_PREFIX = "Reference the following FAQ items"
-        private const val QUESTION_MARKER = "Customer question: "
-    }
-}
 
 @Service
 class SupportGraphService(
@@ -120,16 +87,7 @@ class SupportGraphService(
             results.size,
             results.map { "%.3f".format(it.score.value) },
         )
-        return if (results.isEmpty()) {
-            query
-        } else {
-            buildString {
-                appendLine("Reference the following FAQ items if relevant:")
-                results.forEach { appendLine("- ${it.document.content}") }
-                appendLine()
-                append("Customer question: $query")
-            }
-        }
+        return FaqAugment.build(query, results.map { it.document.content })
     }
 
     /**
