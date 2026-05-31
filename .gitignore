@@ -38,3 +38,6 @@ out/
 
 ### Kotlin ###
 .kotlin
+
+### Local notes (Zenn 記事下書きなど。Git 管理外) ###
+notes/

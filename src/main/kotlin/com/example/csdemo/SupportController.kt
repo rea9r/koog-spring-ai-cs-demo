@@ -18,11 +18,13 @@ class SupportController(
 	}
 
 	@PostMapping("/support/handle")
-	fun handle(@RequestBody request: SupportQuery): SupportResponse = runBlocking {
-		SupportResponse(supportGraphService.handle(request.prompt))
+	fun handle(@RequestBody request: SupportHandleQuery): SupportResponse = runBlocking {
+		SupportResponse(supportGraphService.handle(request.prompt, request.sessionId))
 	}
 }
 
 data class SupportQuery(val prompt: String)
+
+data class SupportHandleQuery(val prompt: String, val sessionId: String)
 
 data class SupportResponse(val response: String)

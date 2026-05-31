@@ -1,5 +1,7 @@
 package com.example.csdemo
 
+import ai.koog.agents.chatMemory.feature.ChatMemory
+import ai.koog.agents.chatMemory.feature.InMemoryChatHistoryProvider
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.dsl.builder.node
@@ -20,6 +22,8 @@ internal fun orderStatusReply(request: SupportRequest): String =
 class SupportGraphService(
     private val promptExecutor: PromptExecutor,
 ) {
+    private val historyProvider = InMemoryChatHistoryProvider()
+
     /**
      * Step 2-1：問い合わせ文を型付きの [SupportRequest] に分類する。
      */
@@ -35,17 +39,21 @@ class SupportGraphService(
     }
 
     /**
-     * Step 2-2：問い合わせを分類し、intent で分岐して回答する。
+     * Step 2-2 / 3：問い合わせを intent で分岐して回答する。sessionId 単位で会話履歴を引き継ぐ。
      */
-    suspend fun handle(userPrompt: String): String {
+    suspend fun handle(userPrompt: String, sessionId: String): String {
         val agent = AIAgent(
             promptExecutor = promptExecutor,
             llmModel = OpenAIModels.Chat.GPT5Nano,
             systemPrompt = SYSTEM_PROMPT,
             strategy = routingStrategy(),
             toolRegistry = ToolRegistry.EMPTY,
-        )
-        return agent.run(userPrompt)
+        ) {
+            install(ChatMemory.Feature) {
+                chatHistoryProvider(historyProvider)
+            }
+        }
+        return agent.run(userPrompt, sessionId)
     }
 
     /**
