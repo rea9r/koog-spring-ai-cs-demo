@@ -47,22 +47,27 @@ class SupportGraphService(
     }
 
     /**
-     * A4：classifier 駆動の `when` 分岐を排し、すべての user prompt を tool ループに統一する。
+     * A4 で classifier 駆動の `when` 分岐を排し、A7 で tool 経路の FAQ retrieval skip を追加。
      *
-     * before: classify -> when (intent) { ORDER_STATUS -> orderStatusReply; else -> answer }
-     * after : answer agent 一本（注文操作は getOrderStatus / cancelOrder tool として LLM に委ねる）
+     * 流れ:
+     * 1. [looksLikeOrderOperation] でヒューリスティック判定（注文キーワード + ID 風文字列の同居）
+     * 2. true -> FAQ retrieval を skip して prompt をそのまま answer agent に渡す
+     * 3. false -> 従来通り [augmentWithFaq] で FAQ context を prepend
+     * 4. answer agent (tool dispatch + ChatMemory) が応答生成
      *
-     * Kotlin orchestration から LLM tool dispatch への移行。classifier の境界揺れ（例: A5 で観察した
-     * 「ABC3 のキャンセル発話が ORDER_STATUS と誤判定される」現象）が経路選択を破壊しなくなり、
-     * tool の `@LLMDescription` が「どのリクエストでどの tool を呼ぶか」の判断基準として機能する。
+     * A7 の動機: B1 (b1-s1) で観察された「tool 経路でも FAQ retrieval が走り、LLM が補足展開する」
+     * 課題を経路設計側で防ぐ。prompt engineering の限界に対する構造的対処。
      *
-     * classifier ([classify]) は `/support` endpoint で intent 観察用に残るが、`handle` からは呼ばない。
+     * classifier ([classify]) は `/support` endpoint 用に残るが、`handle` からは呼ばない。
      */
-    suspend fun handle(userPrompt: String, sessionId: String): String =
-        answerWithFaqGrounding(userPrompt, sessionId)
+    suspend fun handle(userPrompt: String, sessionId: String): String {
+        val skipFaq = looksLikeOrderOperation(userPrompt)
+        log.info("Routing decision: skipFaqRetrieval={} prompt='{}'", skipFaq, userPrompt.take(60))
+        val input = if (skipFaq) userPrompt else augmentWithFaq(userPrompt)
+        return runAnswerAgent(input, sessionId)
+    }
 
-    private suspend fun answerWithFaqGrounding(userPrompt: String, sessionId: String): String {
-        val augmentedPrompt = augmentWithFaq(userPrompt)
+    private suspend fun runAnswerAgent(input: String, sessionId: String): String {
         val agent = AIAgent(
             promptExecutor = promptExecutor,
             llmModel = OpenAIModels.Chat.GPT5Nano,
@@ -80,7 +85,7 @@ class SupportGraphService(
                 }
             }
         }
-        return agent.run(augmentedPrompt, sessionId)
+        return agent.run(input, sessionId)
     }
 
     private suspend fun augmentWithFaq(query: String): String {
