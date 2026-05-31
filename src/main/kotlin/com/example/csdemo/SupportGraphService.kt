@@ -126,10 +126,7 @@ class SupportGraphService(
             val extractRequest by node<SupportRequest, SupportRequest> { it }
 
             val orderStatusFlow by subgraph<SupportRequest, String>(name = "order_status_flow") {
-                val answer by node<SupportRequest, String> { request ->
-                    val id = request.orderId ?: "unknown"
-                    "Your order $id is being processed and will ship soon."
-                }
+                val answer by node<SupportRequest, String> { orderStatusReply(it) }
                 nodeStart then answer then nodeFinish
             }
 
@@ -154,6 +151,9 @@ class SupportGraphService(
             edge(orderStatusFlow forwardTo nodeFinish)
             edge(generalAnswer forwardTo nodeFinish transformed { it.content })
         }
+
+    internal fun orderStatusReply(request: SupportRequest): String =
+        "Your order ${request.orderId ?: "unknown"} is being processed and will ship soon."
 
     companion object {
         private val SYSTEM_PROMPT = """
