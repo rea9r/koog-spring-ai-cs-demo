@@ -166,8 +166,6 @@ class SupportGraphService(
     companion object {
         private val SYSTEM_PROMPT = """
             You are an e-commerce customer support assistant. Be helpful, concise, and polite.
-            When you are asked to classify a message into a structured shape, follow the provided schema strictly:
-            extract the intent, the order ID if mentioned, and a short summary. Never invent an order ID; use null when it is not mentioned.
         """.trimIndent()
     }
 }
