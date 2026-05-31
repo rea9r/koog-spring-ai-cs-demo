@@ -21,7 +21,7 @@ OPENAI_API_KEY=sk-... ./gradlew bootRun
 ```bash
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello"}'
+  -d '{"prompt": "こんにちは"}'
 ```
 
 ### `POST /support` — Step 2-1：構造化分類
@@ -31,7 +31,7 @@ curl -X POST http://localhost:8080/chat \
 ```bash
 curl -X POST http://localhost:8080/support \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Where is my order 12345?"}'
+  -d '{"prompt": "注文 12345 はどこですか"}'
 # -> {"intent":"ORDER_STATUS","orderId":"12345","summary":"..."}
 ```
 
@@ -42,7 +42,7 @@ classify -> intent 別に分岐して回答する。`sessionId` 単位で会話�
 ```bash
 curl -X POST http://localhost:8080/support/handle \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "What is your return policy?", "sessionId": "demo"}'
+  -d '{"prompt": "返品ポリシーを教えてください", "sessionId": "demo"}'
 ```
 
 ## アーキテクチャ

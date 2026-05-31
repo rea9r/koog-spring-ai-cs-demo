@@ -14,8 +14,8 @@ import ai.koog.prompt.message.Message
  * ここに集約している。
  */
 internal object FaqAugment {
-    const val HEADER: String = "Reference the following FAQ items if relevant:"
-    const val QUESTION_MARKER: String = "Customer question: "
+    const val HEADER: String = "以下の FAQ を参考にしてください:"
+    const val QUESTION_MARKER: String = "お客様の質問: "
 
     fun build(query: String, faqs: List<String>): String =
         if (faqs.isEmpty()) {

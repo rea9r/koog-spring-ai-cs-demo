@@ -10,11 +10,11 @@ class SupportGraphServiceTest {
         val request = SupportRequest(
             intent = SupportIntent.ORDER_STATUS,
             orderId = "84721",
-            summary = "Check the status of order 84721",
+            summary = "注文 84721 の配送状況を確認したい",
         )
 
         assertEquals(
-            "Your order 84721 is being processed and will ship soon.",
+            "ご注文 84721 は現在処理中で、まもなく発送されます。",
             orderStatusReply(request),
         )
     }
@@ -24,11 +24,11 @@ class SupportGraphServiceTest {
         val request = SupportRequest(
             intent = SupportIntent.ORDER_STATUS,
             orderId = null,
-            summary = "Check the status",
+            summary = "配送状況を確認したい",
         )
 
         assertEquals(
-            "Your order unknown is being processed and will ship soon.",
+            "ご注文 不明 は現在処理中で、まもなく発送されます。",
             orderStatusReply(request),
         )
     }

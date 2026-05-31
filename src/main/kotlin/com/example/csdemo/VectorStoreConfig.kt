@@ -26,11 +26,11 @@ class VectorStoreConfig {
         }
 
     private fun seedFaqDocuments(): List<Document> = listOf(
-        "Our standard return policy allows returns within 30 days of delivery for any reason. Items must be unused and in original packaging.",
-        "Refunds are processed within 5-7 business days after we receive your returned item. The refund is issued to your original payment method.",
-        "Standard shipping takes 3-5 business days. Express shipping (extra fee) takes 1-2 business days. Orders placed after 3pm ship the next business day.",
-        "You can track your order from the order detail page in your account, or via the tracking link in your shipping confirmation email.",
-        "Orders can be cancelled free of charge until they enter the shipping queue. Once shipped, treat the cancellation as a return request.",
-        "If your item arrived damaged, contact support with a photo within 7 days. We will send a replacement at no cost or offer a full refund.",
+        "返品ポリシー: 商品お届け後 30 日以内であれば理由を問わず返品を受け付けます。未使用かつ元の梱包の状態でお戻しください。",
+        "返金処理: 返品商品を当社で受領後、5〜7 営業日以内に返金を処理します。返金はご購入時の決済方法に対して行われます。",
+        "配送日数: 通常配送は 3〜5 営業日でお届けします。お急ぎ便（追加料金）は 1〜2 営業日です。15 時以降のご注文は翌営業日の発送となります。",
+        "注文の追跡: マイページの注文詳細から、または発送完了メールに記載のトラッキングリンクから、配送状況をご確認いただけます。",
+        "注文のキャンセル: 出荷準備に入る前であれば手数料なしでキャンセル可能です。出荷後の場合は返品手続きとしてご対応ください。",
+        "破損品の対応: 商品が破損して到着した場合は、お受け取りから 7 日以内に写真を添えてサポートまでご連絡ください。無償交換または全額返金で対応します。",
     ).map { Document.builder().text(it).build() }
 }

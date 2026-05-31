@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 internal fun orderStatusReply(request: SupportRequest): String =
-    "Your order ${request.orderId ?: "unknown"} is being processed and will ship soon."
+    "ご注文 ${request.orderId ?: "不明"} は現在処理中で、まもなく発送されます。"
 
 @Service
 class SupportGraphService(
@@ -107,17 +107,17 @@ class SupportGraphService(
                     SupportRequest(
                         intent = SupportIntent.ORDER_STATUS,
                         orderId = "84721",
-                        summary = "Check the status of order 84721",
+                        summary = "注文 84721 の配送状況を確認したい",
                     ),
                     SupportRequest(
                         intent = SupportIntent.REFUND,
                         orderId = "84721",
-                        summary = "Request a refund for order 84721",
+                        summary = "注文 84721 の返金を依頼したい",
                     ),
                     SupportRequest(
                         intent = SupportIntent.QUESTION,
                         orderId = null,
-                        summary = "Ask about the return policy",
+                        summary = "返品ポリシーについて知りたい",
                     ),
                 ),
                 fixingParser = StructureFixingParser(
@@ -134,7 +134,7 @@ class SupportGraphService(
         private val log = LoggerFactory.getLogger(SupportGraphService::class.java)
 
         private val SYSTEM_PROMPT = """
-            You are an e-commerce customer support assistant. Be helpful, concise, and polite.
+            あなたは EC サイトのカスタマーサポート担当です。簡潔で丁寧に応対してください。
         """.trimIndent()
 
         /**
@@ -144,19 +144,18 @@ class SupportGraphService(
          * threshold をすり抜けた無関係な FAQ がぶら下がってきても無視させる節も含む。
          */
         private val ANSWER_PROMPT = """
-            You are an e-commerce customer support assistant. Be helpful, concise, and polite.
+            あなたは EC サイトのカスタマーサポート担当です。簡潔で丁寧に応対してください。
 
-            When the user message includes a "Reference the following FAQ items" section
-            AND those items address the customer's actual question, treat those items as
-            your only source for company policy facts (timeframes, exceptions, etc.).
-            Do not invent details beyond what is listed.
+            お客様のメッセージに「以下の FAQ を参考にしてください:」というセクションが含まれていて、
+            その内容がお客様の質問に直接答えるものである場合は、その FAQ だけを根拠にして
+            ポリシー（期間、例外など）を回答してください。FAQ に書かれていない具体的な数字や
+            条件を勝手に補足しないでください。
 
-            If the listed FAQ items are unrelated to the customer's actual question
-            (e.g., they greeted you, or asked something off-policy), ignore the items
-            and respond naturally without bringing up policy.
+            FAQ の項目がお客様の質問と無関係な場合（挨拶やポリシー外の質問など）は、FAQ を無視して
+            自然に応対し、ポリシーの話題を持ち出さないでください。
 
-            When no FAQ section is provided, answer the customer's actual question and do
-            not volunteer unrelated policy details.
+            FAQ セクションが含まれていない場合は、お客様の実際の質問にだけ答え、
+            聞かれていないポリシー詳細を自発的に持ち出さないでください。
         """.trimIndent()
     }
 }

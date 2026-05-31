@@ -13,17 +13,17 @@ class FaqAugmentTest {
 
     @Test
     fun `build returns the query unchanged when no faqs are provided`() {
-        val query = "What is your return policy?"
+        val query = "返品ポリシーを教えてください"
 
         assertEquals(query, FaqAugment.build(query, emptyList()))
     }
 
     @Test
     fun `build prepends FAQ items and ends with the question marker followed by the query`() {
-        val query = "What is your return policy?"
+        val query = "返品ポリシーを教えてください"
         val faqs = listOf(
-            "Returns are accepted within 30 days.",
-            "Refunds take 5-7 business days.",
+            "返品ポリシー: 30 日以内であれば返品可能です。",
+            "返金: 受領後 5〜7 営業日で処理します。",
         )
 
         val augmented = FaqAugment.build(query, faqs)
@@ -35,8 +35,8 @@ class FaqAugmentTest {
 
     @Test
     fun `StripFaqContextPreProcessor strips FAQ block from augmented user message`() {
-        val original = "What is your return policy?"
-        val augmented = FaqAugment.build(original, listOf("Returns within 30 days."))
+        val original = "返品ポリシーを教えてください"
+        val augmented = FaqAugment.build(original, listOf("返品ポリシー: 30 日以内であれば返品可能です。"))
         val input = listOf(userMessage(augmented))
 
         val output = StripFaqContextPreProcessor().preprocess(input)
@@ -47,7 +47,7 @@ class FaqAugmentTest {
 
     @Test
     fun `StripFaqContextPreProcessor leaves non-augmented user messages untouched`() {
-        val plain = userMessage("Where is my order 12345?")
+        val plain = userMessage("注文 12345 はどこですか")
 
         val output = StripFaqContextPreProcessor().preprocess(listOf(plain))
 
@@ -68,7 +68,7 @@ class FaqAugmentTest {
 
     @Test
     fun `StripFaqContextPreProcessor keeps message if question marker is missing`() {
-        val malformed = userMessage("${FaqAugment.HEADER} (oops, no marker)")
+        val malformed = userMessage("${FaqAugment.HEADER} (お客様の質問マーカーがない)")
 
         val output = StripFaqContextPreProcessor().preprocess(listOf(malformed))
 
