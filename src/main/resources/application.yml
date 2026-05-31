@@ -21,3 +21,5 @@ koog:
     ai:
       chat-memory:
         enabled: true
+      vectorstore:
+        enabled: true

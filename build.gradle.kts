@@ -40,6 +40,8 @@ dependencies {
 	implementation(libs.koog.spring.ai.chat)
 	// Spring AI の ChatMemoryRepository を Koog の ChatHistoryProvider に橋渡しする starter
 	implementation(libs.koog.spring.ai.chat.memory)
+	// Spring AI の VectorStore を Koog 側 SearchStorage/WriteStorage に橋渡しする starter
+	implementation(libs.koog.spring.ai.vector.store)
 
 	// Spring AI OpenAI（version は BOM 管理）
 	implementation(libs.spring.ai.openai)
