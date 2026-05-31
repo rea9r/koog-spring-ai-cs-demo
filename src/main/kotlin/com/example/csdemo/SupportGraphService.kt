@@ -32,6 +32,7 @@ class SupportGraphService(
     private val promptExecutor: PromptExecutor,
     private val historyProvider: ChatHistoryProvider,
     private val vectorStore: KoogVectorStore,
+    private val orderTools: OrderTools,
 ) {
 
     /**
@@ -71,7 +72,7 @@ class SupportGraphService(
             llmModel = OpenAIModels.Chat.GPT5Nano,
             systemPrompt = ANSWER_PROMPT,
             strategy = answerStrategy(),
-            toolRegistry = ToolRegistry { tools(OrderTools()) },
+            toolRegistry = ToolRegistry { tools(orderTools) },
         ) {
             install(ChatMemory.Feature) {
                 chatHistoryProvider(historyProvider)
