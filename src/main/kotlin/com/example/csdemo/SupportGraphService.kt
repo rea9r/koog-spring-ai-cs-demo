@@ -13,6 +13,9 @@ import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
 import org.springframework.stereotype.Service
 
+internal fun orderStatusReply(request: SupportRequest): String =
+    "Your order ${request.orderId ?: "unknown"} is being processed and will ship soon."
+
 @Service
 class SupportGraphService(
     private val promptExecutor: PromptExecutor,
@@ -151,9 +154,6 @@ class SupportGraphService(
             edge(orderStatusFlow forwardTo nodeFinish)
             edge(generalAnswer forwardTo nodeFinish transformed { it.content })
         }
-
-    internal fun orderStatusReply(request: SupportRequest): String =
-        "Your order ${request.orderId ?: "unknown"} is being processed and will ship soon."
 
     companion object {
         private val SYSTEM_PROMPT = """
