@@ -9,7 +9,6 @@ import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.extension.nodeExecuteTool
 import ai.koog.agents.core.dsl.extension.nodeLLMCompressHistory
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
-import ai.koog.agents.core.dsl.extension.nodeLLMRequestStreamingAndSendResults
 import ai.koog.agents.core.dsl.extension.nodeLLMRequestStructured
 import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResult
 import ai.koog.agents.core.dsl.extension.onAssistantMessage
@@ -300,7 +299,14 @@ class SupportGraphService(
      */
     private fun answerStrategyStreaming(): AIAgentGraphStrategy<String, String> =
         strategy<String, String>("support_answer_loop_stream") {
-            val callLLM by nodeLLMRequestStreamingAndSendResults<String>()
+            // 自前 streaming node。Koog 標準の nodeLLMRequestStreamingAndSendResults は input を user message として
+            // prompt に append しない実装なので、自前で `appendPrompt { user(input) }` を行ってから streaming する。
+            val callLLM by node<String, List<Message.Response>>("call_llm_stream") { input ->
+                llm.writeSession {
+                    appendPrompt { user(input) }
+                    requestLLMStreaming().toList().toMessageResponses().also { appendPrompt { messages(it) } }
+                }
+            }
             val executeTool by nodeExecuteTool()
             val sendToolResult by node<ReceivedToolResult, List<Message.Response>>("send_tool_result_stream") { result ->
                 llm.writeSession {
