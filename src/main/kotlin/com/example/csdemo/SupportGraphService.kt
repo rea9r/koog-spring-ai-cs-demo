@@ -5,7 +5,6 @@ import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.dsl.builder.strategy
-import ai.koog.agents.core.dsl.extension.HistoryCompressionStrategy
 import ai.koog.agents.core.dsl.extension.nodeExecuteTool
 import ai.koog.agents.core.dsl.extension.nodeLLMCompressHistory
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
@@ -30,7 +29,19 @@ class SupportGraphService(
     private val historyProvider: ChatHistoryProvider,
     private val vectorStore: KoogVectorStore,
     private val orderTools: OrderTools,
+    private val compressionConfig: HistoryCompressionConfig,
 ) {
+
+    init {
+        log.info(
+            "History compression config: mode={} keepLastN={} chunkSize={} threshold={}",
+            compressionConfig.mode,
+            compressionConfig.keepLastN,
+            compressionConfig.chunkSize,
+            compressionConfig.threshold,
+        )
+    }
+
 
     /**
      * Step 2-1：問い合わせ文を型付きの [SupportRequest] に分類する。
@@ -192,7 +203,7 @@ class SupportGraphService(
             val executeTool by nodeExecuteTool()
             val sendToolResult by nodeLLMSendToolResult()
             val compressHistory by nodeLLMCompressHistory<ReceivedToolResult>(
-                strategy = HistoryCompressionStrategy.FromLastNMessages(HISTORY_KEEP_LAST_N),
+                strategy = compressionConfig.resolveStrategy(),
                 preserveMemory = true,
             )
 
@@ -202,8 +213,8 @@ class SupportGraphService(
             edge(
                 executeTool forwardTo compressHistory onCondition { _ ->
                     val size = llm.readSession { prompt.messages.size }
-                    val hit = size > HISTORY_COMPRESS_THRESHOLD
-                    log.info("History compress check: messages={} threshold={} hit={}", size, HISTORY_COMPRESS_THRESHOLD, hit)
+                    val hit = size > compressionConfig.threshold
+                    log.info("History compress check: messages={} threshold={} hit={}", size, compressionConfig.threshold, hit)
                     hit
                 },
             )
@@ -215,10 +226,6 @@ class SupportGraphService(
 
     companion object {
         private val log = LoggerFactory.getLogger(SupportGraphService::class.java)
-
-        // 学習用 demo として 3-5 turn 目あたりで compression が走るよう低めに設定
-        private const val HISTORY_COMPRESS_THRESHOLD = 6
-        private const val HISTORY_KEEP_LAST_N = 4
 
         private val SYSTEM_PROMPT = """
             あなたは EC サイトのカスタマーサポート担当です。簡潔で丁寧に応対してください。

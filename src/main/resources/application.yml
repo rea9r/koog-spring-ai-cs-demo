@@ -28,3 +28,10 @@ koog:
         enabled: true
       vectorstore:
         enabled: true
+  support:
+    history-compression:
+      # mode: none | whole | from-last-n | chunked
+      mode: from-last-n
+      keep-last-n: 4
+      chunk-size: 4
+      threshold: 6
