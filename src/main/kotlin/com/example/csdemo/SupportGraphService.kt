@@ -8,6 +8,7 @@ import ai.koog.agents.core.agent.singleRunStrategy
 import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.extension.nodeLLMRequestStructured
 import ai.koog.agents.core.tools.ToolRegistry
+import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
@@ -63,11 +64,16 @@ class SupportGraphService(
             llmModel = OpenAIModels.Chat.GPT5Nano,
             systemPrompt = ANSWER_PROMPT,
             strategy = singleRunStrategy(),
-            toolRegistry = ToolRegistry.EMPTY,
+            toolRegistry = ToolRegistry { tools(OrderTools()) },
         ) {
             install(ChatMemory.Feature) {
                 chatHistoryProvider(historyProvider)
                 addPreProcessor(StripFaqContextPreProcessor())
+            }
+            handleEvents {
+                onToolCallStarting { e ->
+                    log.info("Tool called: name={} args={}", e.toolName, e.toolArgs)
+                }
             }
         }
         return agent.run(augmentedPrompt, sessionId)
@@ -134,6 +140,11 @@ class SupportGraphService(
                         orderId = null,
                         summary = "配送日数や送料について知りたい",
                     ),
+                    SupportRequest(
+                        intent = SupportIntent.OTHER,
+                        orderId = "ABC123",
+                        summary = "注文 ABC123 のキャンセルを希望",
+                    ),
                 ),
                 fixingParser = StructureFixingParser(
                     model = OpenAIModels.Chat.GPT5Nano,
@@ -171,6 +182,10 @@ class SupportGraphService(
 
             FAQ セクションが含まれていない場合は、お客様の実際の質問にだけ答え、
             聞かれていないポリシー詳細を自発的に持ち出さないでください。
+
+            操作系のツール（例: 注文のキャンセル）が利用可能です。お客様が明示的に該当の操作を
+            希望している場合は、追加で確認を取らずに直接ツールを呼び出してください。
+            操作後にツールの実行結果を踏まえてお客様に結果をお伝えしてください。
         """.trimIndent()
     }
 }
