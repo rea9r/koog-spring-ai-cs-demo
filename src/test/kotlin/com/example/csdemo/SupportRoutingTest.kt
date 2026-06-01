@@ -39,4 +39,12 @@ class SupportRoutingTest {
         assertTrue(looksLikeOrderOperation("注文 ABC1 をキャンセル"))
         assertTrue(looksLikeOrderOperation("注文 ORD1 の状況"))
     }
+
+    @Test
+    fun `Step 5-A15 で英字 1 文字 + 数字 1 桁の単短 ID もマッチ`() {
+        // 学び 38 (A8 検証で発覚) の P1〜P5 のような短 ID も拾えるようにする
+        assertTrue(looksLikeOrderOperation("注文 P1 をキャンセル"))
+        assertTrue(looksLikeOrderOperation("注文 N5 の配送状況"))
+        assertTrue(looksLikeOrderOperation("オーダー O3 を取り消したい"))
+    }
 }
