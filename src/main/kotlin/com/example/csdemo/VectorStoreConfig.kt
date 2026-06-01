@@ -1,11 +1,15 @@
 package com.example.csdemo
 
+import ai.koog.spring.ai.vectorstore.KoogVectorStore
+import ai.koog.spring.ai.vectorstore.SpringAiKoogVectorStore
+import kotlinx.coroutines.CoroutineDispatcher
 import org.springframework.ai.document.Document
 import org.springframework.ai.embedding.EmbeddingModel
 import org.springframework.ai.vectorstore.SearchRequest
 import org.springframework.ai.vectorstore.VectorStore
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.ApplicationRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -42,6 +46,48 @@ class VectorStoreConfig {
         .indexType(PgVectorStore.PgIndexType.HNSW)
         .initializeSchema(true)
         .build()
+
+    /**
+     * Step 5-A13 (A16): LongTermMemory 用に独立した PgVectorStore Bean を作る。
+     *
+     * 学び 54 で発覚した「FAQ retrieval と LTM ingestion を同じ vectorStore で共有すると相互汚染が
+     * 発生する」問題への対処。`vectorTableName` を `ltm_records` に明示指定して別 table に隔離する。
+     * 既存の FAQ 用 [vectorStore] は default の `vector_store` table 名のまま残す。
+     */
+    @Bean
+    fun ltmPgVectorStore(
+        jdbcTemplate: JdbcTemplate,
+        embeddingModel: EmbeddingModel,
+    ): PgVectorStore = PgVectorStore.builder(jdbcTemplate, embeddingModel)
+        .vectorTableName("ltm_records")
+        .dimensions(EMBEDDING_DIMENSIONS)
+        .distanceType(PgVectorStore.PgDistanceType.COSINE_DISTANCE)
+        .indexType(PgVectorStore.PgIndexType.HNSW)
+        .initializeSchema(true)
+        .build()
+
+    /**
+     * Step 5-A13 (A16): FAQ 用 + LTM 用の KoogVectorStore Bean を両方手動で定義する。
+     *
+     * Koog autoconfig の `@ConditionalOnMissingBean(KoogVectorStore::class)` は型ベース判定なので、
+     * 手動で `ltmKoogVectorStore` (KoogVectorStore 型) を 1 つでも登録すると autoconfig 側の
+     * KoogVectorStore Bean 生成が一切スキップされてしまう。結果として
+     * `@Qualifier("springAiKoogVectorStore")` の resolution が失敗する。
+     *
+     * 対処として autoconfig に頼らず、FAQ 用も自前で `SpringAiKoogVectorStore` をラップする
+     * Bean を定義する。`application.yml` の `vector-store-bean-name` も不要になる。
+     */
+    @Bean
+    fun faqKoogVectorStore(
+        @Qualifier("vectorStore") store: PgVectorStore,
+        @Qualifier("koogSpringAiVectorStoreDispatcher") dispatcher: CoroutineDispatcher,
+    ): KoogVectorStore = SpringAiKoogVectorStore(store, dispatcher)
+
+    @Bean
+    fun ltmKoogVectorStore(
+        @Qualifier("ltmPgVectorStore") store: PgVectorStore,
+        @Qualifier("koogSpringAiVectorStoreDispatcher") dispatcher: CoroutineDispatcher,
+    ): KoogVectorStore = SpringAiKoogVectorStore(store, dispatcher)
 
     /**
      * 起動時に FAQ が空なら seed する。再起動時は既存データを保持。

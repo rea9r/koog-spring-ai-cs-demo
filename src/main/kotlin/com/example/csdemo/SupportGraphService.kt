@@ -32,13 +32,15 @@ import ai.koog.rag.base.storage.search.SimilaritySearchRequest
 import ai.koog.spring.ai.vectorstore.KoogVectorStore
 import kotlinx.coroutines.flow.toList
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Service
 
 @Service
 class SupportGraphService(
     private val promptExecutor: PromptExecutor,
     private val historyProvider: ChatHistoryProvider,
-    private val vectorStore: KoogVectorStore,
+    @param:Qualifier("faqKoogVectorStore") private val vectorStore: KoogVectorStore,
+    @param:Qualifier("ltmKoogVectorStore") private val ltmVectorStore: KoogVectorStore,
     private val orderTools: OrderTools,
     private val compressionConfig: HistoryCompressionConfig,
     private val chatMemoryWindow: ChatMemoryWindowProperties,
@@ -173,11 +175,11 @@ class SupportGraphService(
             }
             install(LongTermMemory.Feature) {
                 retrieval {
-                    storage = vectorStore
+                    storage = ltmVectorStore
                     promptAugmenter = SystemPromptAugmenter(template = LTM_AUGMENTER_TEMPLATE_JA)
                 }
                 ingestion {
-                    storage = vectorStore
+                    storage = ltmVectorStore
                     extractionStrategy = FilteringExtractionStrategy(setOf(Message.Role.User))
                 }
             }
