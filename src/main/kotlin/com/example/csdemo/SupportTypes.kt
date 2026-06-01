@@ -18,8 +18,17 @@ enum class SupportIntent {
 	OTHER,
 }
 
+/**
+ * Step 5-B8 (B9): LLM の structured output から `summary` を削除。
+ *
+ * B8 で観察した summary hallucination (学び 74) — 「手続きに必要な情報の提供を依頼」のような
+ * 補完語の hallucination が prompt denylist でも完全には抑えきれなかった — に対する根本対処。
+ * LLM 生成の自由 text は production grade では deterministic でなく、user 発話の精確な保存
+ * 目的には rule-based copy が確実。`/support` endpoint response では [SupportClassificationResponse]
+ * 経由で controller layer から user prompt を直接返す。
+ */
 @Serializable
-@LLMDescription("お客様のメッセージから抽出した、正規化されたサポート問い合わせ。")
+@LLMDescription("お客様のメッセージから抽出した、正規化されたサポート問い合わせの分類結果。")
 data class SupportRequest(
 	@property:LLMDescription(
 		"""
@@ -45,21 +54,16 @@ data class SupportRequest(
 
 	@property:LLMDescription("お客様が言及した注文 ID。言及がなければ null")
 	val orderId: String? = null,
+)
 
-	@property:LLMDescription(
-		"""
-		お客様の要望を 1 文で要約したもの。**お客様が実際に発話した内容の範囲だけ**を要約し、
-		入力にない手続き・条件・周辺事情を補完して書かない。動詞 + 目的を最小限の語数で。30 字以内が目安。
-
-		** 補完禁止語（user が言ってないなら書かない）** の例:
-		- "手続き" / "手続きの案内" / "手続きを進める" / "手続きに必要な情報の提供"
-		- "登録メールアドレスの照合" / "登録情報の確認"
-		- "発送状況の確認" / "状況の確認" (intent が ORDER_STATUS でない限り)
-		- "対応の流れ" / "次のステップ"
-		- "求めている" / "希望している" を user が言ってないのに付け足さない
-
-		例: "注文 ABC9 のキャンセルを希望" / "返品ポリシーの確認" / "配送状況の問い合わせ" / "注文 12345 を払い戻し"
-		""",
-	)
-	val summary: String,
+/**
+ * `/support` endpoint の response shape。
+ *
+ * `SupportRequest` (LLM の structured output) に user prompt を controller layer で merge した形。
+ * `userPrompt` は LLM 生成ではなく rule-based copy なので、hallucination が起きない確実な field。
+ */
+data class SupportClassificationResponse(
+	val intent: SupportIntent,
+	val orderId: String?,
+	val userPrompt: String,
 )

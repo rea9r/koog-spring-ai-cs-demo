@@ -22,9 +22,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 class SupportController(
 	private val supportGraphService: SupportGraphService,
 ) {
+	/**
+	 * Step 5-B8 (B9): LLM の summary 生成を排して、user prompt を rule-based に response に含める。
+	 * SupportRequest (LLM 出力) + 入力 prompt を controller layer で merge して
+	 * [SupportClassificationResponse] として返す。
+	 */
 	@PostMapping("/support")
-	fun support(@RequestBody request: SupportQuery): SupportRequest = runBlocking {
-		supportGraphService.classify(request.prompt)
+	fun support(@RequestBody request: SupportQuery): SupportClassificationResponse = runBlocking {
+		val classification = supportGraphService.classify(request.prompt)
+		SupportClassificationResponse(
+			intent = classification.intent,
+			orderId = classification.orderId,
+			userPrompt = request.prompt.take(USER_PROMPT_RESPONSE_LIMIT),
+		)
 	}
 
 	@PostMapping("/support/handle")
@@ -72,6 +82,7 @@ class SupportController(
 	private companion object {
 		private val log = LoggerFactory.getLogger(SupportController::class.java)
 		private val streamFrameJson = Json { encodeDefaults = true }
+		private const val USER_PROMPT_RESPONSE_LIMIT = 200
 	}
 }
 

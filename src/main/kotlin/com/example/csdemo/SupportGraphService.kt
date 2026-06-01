@@ -251,61 +251,14 @@ class SupportGraphService(
         strategy<String, SupportRequest>("support_intent_classifier") {
             val classify by nodeLLMRequestStructured<SupportRequest>(
                 examples = listOf(
-                    SupportRequest(
-                        intent = SupportIntent.ORDER_STATUS,
-                        orderId = "84721",
-                        summary = "注文 84721 の配送状況を確認したい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.ORDER_STATUS,
-                        orderId = "92001",
-                        summary = "注文 92001 はいつ届くか確認",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.ORDER_STATUS,
-                        orderId = "10500",
-                        summary = "注文 10500 の現在のステータスを知りたい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.REFUND,
-                        orderId = "84721",
-                        summary = "注文 84721 の返金を依頼したい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.QUESTION,
-                        orderId = null,
-                        summary = "返品ポリシーについて知りたい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.QUESTION,
-                        orderId = null,
-                        summary = "返金にかかる日数を知りたい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.QUESTION,
-                        orderId = null,
-                        summary = "返金はいつ届くのか目安を知りたい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.QUESTION,
-                        orderId = null,
-                        summary = "配送日数や送料について知りたい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.CANCEL_ORDER,
-                        orderId = "ABC123",
-                        summary = "注文 ABC123 のキャンセルを希望",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.CANCEL_ORDER,
-                        orderId = "XYZ001",
-                        summary = "注文 XYZ001 を取り消ししたい",
-                    ),
-                    SupportRequest(
-                        intent = SupportIntent.REFUND,
-                        orderId = "12345",
-                        summary = "注文 12345 の代金を払い戻してほしい",
-                    ),
+                    SupportRequest(intent = SupportIntent.ORDER_STATUS, orderId = "84721"),
+                    SupportRequest(intent = SupportIntent.ORDER_STATUS, orderId = "92001"),
+                    SupportRequest(intent = SupportIntent.ORDER_STATUS, orderId = "10500"),
+                    SupportRequest(intent = SupportIntent.REFUND, orderId = "84721"),
+                    SupportRequest(intent = SupportIntent.QUESTION, orderId = null),
+                    SupportRequest(intent = SupportIntent.CANCEL_ORDER, orderId = "ABC123"),
+                    SupportRequest(intent = SupportIntent.CANCEL_ORDER, orderId = "XYZ001"),
+                    SupportRequest(intent = SupportIntent.REFUND, orderId = "12345"),
                 ),
                 fixingParser = StructureFixingParser(
                     model = OpenAIModels.Chat.GPT5Nano,
