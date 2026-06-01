@@ -282,12 +282,12 @@ class SupportGraphService(
                         summary = "配送日数や送料について知りたい",
                     ),
                     SupportRequest(
-                        intent = SupportIntent.OTHER,
+                        intent = SupportIntent.CANCEL_ORDER,
                         orderId = "ABC123",
                         summary = "注文 ABC123 のキャンセルを希望",
                     ),
                     SupportRequest(
-                        intent = SupportIntent.OTHER,
+                        intent = SupportIntent.CANCEL_ORDER,
                         orderId = "XYZ001",
                         summary = "注文 XYZ001 を取り消ししたい",
                     ),
