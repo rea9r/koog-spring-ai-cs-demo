@@ -19,7 +19,6 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.core.annotation.ExperimentalAgentsApi
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.longtermmemory.feature.LongTermMemory
-import ai.koog.agents.longtermmemory.ingestion.extraction.FilteringExtractionStrategy
 import ai.koog.agents.longtermmemory.retrieval.augmentation.PromptAugmenter
 import ai.koog.agents.longtermmemory.retrieval.augmentation.SystemPromptAugmenter
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
@@ -180,7 +179,7 @@ class SupportGraphService(
                 }
                 ingestion {
                     storage = ltmVectorStore
-                    extractionStrategy = FilteringExtractionStrategy(setOf(Message.Role.User))
+                    extractionStrategy = FaqStrippingExtractionStrategy()
                 }
             }
             handleEvents {

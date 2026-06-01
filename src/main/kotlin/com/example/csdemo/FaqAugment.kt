@@ -29,6 +29,21 @@ internal object FaqAugment {
                 append(query)
             }
         }
+
+    /**
+     * augmented prompt から FAQ block を剥がして original query を取り出す。
+     *
+     * - HEADER 始まりでないなら何もしない (raw query をそのまま返す)
+     * - HEADER 始まりだが [QUESTION_MARKER] が見つからない malformed message は安全策で元の content を返す
+     *
+     * [StripFaqContextPreProcessor] (ChatMemory pipeline 用) と
+     * [FaqStrippingExtractionStrategy] (LongTermMemory ingestion 用) で共有する。
+     */
+    fun stripFaqBlock(content: String): String {
+        if (!content.startsWith(HEADER)) return content
+        val original = content.substringAfterLast(QUESTION_MARKER, "").trim()
+        return original.ifEmpty { content }
+    }
 }
 
 /**
@@ -45,10 +60,10 @@ internal object FaqAugment {
  */
 internal class StripFaqContextPreProcessor : ChatMemoryPreProcessor {
     override fun preprocess(messages: List<Message>): List<Message> = messages.map { msg ->
-        if (msg is Message.User && msg.content.startsWith(FaqAugment.HEADER)) {
-            val original = msg.content.substringAfterLast(FaqAugment.QUESTION_MARKER, "").trim()
-            if (original.isNotEmpty()) {
-                Message.User(content = original, metaInfo = msg.metaInfo, cacheControl = msg.cacheControl)
+        if (msg is Message.User) {
+            val clean = FaqAugment.stripFaqBlock(msg.content)
+            if (clean != msg.content) {
+                Message.User(content = clean, metaInfo = msg.metaInfo, cacheControl = msg.cacheControl)
             } else {
                 msg
             }
