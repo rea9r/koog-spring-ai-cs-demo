@@ -14,6 +14,13 @@ spring:
         options:
           model: gpt-5-nano
           temperature: 1
+          # Step 5-A16 (A12): streaming response に usage 情報を含める。
+          # default では OpenAI API は streaming 時 usage を省略する仕様
+          # (`stream_options: {"include_usage": true}` の指定が必要)。Spring AI が
+          # `stream-usage: true` で `OpenAiChatOptions.setStreamUsage(true)` 経由で
+          # この option を有効化、最後の chunk に usage が含まれて Koog の
+          # `StreamFrame.End.metaInfo` まで伝播する。
+          stream-usage: true
       embedding:
         options:
           model: text-embedding-3-small
