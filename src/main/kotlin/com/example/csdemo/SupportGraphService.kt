@@ -20,7 +20,8 @@ import ai.koog.agents.core.annotation.ExperimentalAgentsApi
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.longtermmemory.feature.LongTermMemory
 import ai.koog.agents.longtermmemory.ingestion.extraction.FilteringExtractionStrategy
-import ai.koog.agents.longtermmemory.storage.InMemoryRecordStorage
+import ai.koog.agents.longtermmemory.retrieval.augmentation.PromptAugmenter
+import ai.koog.agents.longtermmemory.retrieval.augmentation.SystemPromptAugmenter
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
@@ -41,7 +42,6 @@ class SupportGraphService(
     private val orderTools: OrderTools,
     private val compressionConfig: HistoryCompressionConfig,
     private val chatMemoryWindow: ChatMemoryWindowProperties,
-    private val ltmStorage: InMemoryRecordStorage,
 ) {
 
     init {
@@ -173,10 +173,11 @@ class SupportGraphService(
             }
             install(LongTermMemory.Feature) {
                 retrieval {
-                    storage = ltmStorage
+                    storage = vectorStore
+                    promptAugmenter = SystemPromptAugmenter(template = LTM_AUGMENTER_TEMPLATE_JA)
                 }
                 ingestion {
-                    storage = ltmStorage
+                    storage = vectorStore
                     extractionStrategy = FilteringExtractionStrategy(setOf(Message.Role.User))
                 }
             }
@@ -400,6 +401,18 @@ class SupportGraphService(
 
     companion object {
         private val log = LoggerFactory.getLogger(SupportGraphService::class.java)
+
+        /**
+         * Step 5-A11 (A14): LongTermMemory の [SystemPromptAugmenter] 用日本語テンプレート。
+         * default は英語固定なので、日本語 demo の system prompt に英語が混入しないよう上書きする。
+         */
+        private val LTM_AUGMENTER_TEMPLATE_JA = """
+            以下はお客様との過去のやり取りから抽出された情報です。応答の参考にしてください。
+
+            ${PromptAugmenter.RELEVANT_CONTEXT_PLACEHOLDER}
+
+            上記の情報を踏まえて応答してください。情報に答えがない場合は、推測せずに分からない旨を伝えてください。
+        """.trimIndent()
 
         private val SYSTEM_PROMPT = """
             あなたは EC サイトのカスタマーサポート担当です。簡潔で丁寧に応対してください。
