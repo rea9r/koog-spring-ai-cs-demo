@@ -33,6 +33,15 @@ class SupportController(
 	}
 
 	/**
+	 * Step 5-A10 (A2): LongTermMemory feature を併設した handle。
+	 * ChatMemory との棲み分け観察用。
+	 */
+	@PostMapping("/support/handle/ltm")
+	fun handleLtm(@RequestBody request: SupportHandleQuery): SupportResponse = runBlocking {
+		SupportResponse(supportGraphService.handleWithLtm(request.prompt, request.sessionId))
+	}
+
+	/**
 	 * Step 5-A9 (A11): tool ループ込みの streaming 版。
 	 *
 	 * `SupportGraphService.handleStream` の callback で受け取った各 `StreamFrame` を JSON にして

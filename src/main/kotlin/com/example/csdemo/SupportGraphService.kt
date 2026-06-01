@@ -16,7 +16,11 @@ import ai.koog.agents.core.dsl.extension.onToolCall
 import ai.koog.agents.core.environment.ReceivedToolResult
 import ai.koog.agents.core.environment.result
 import ai.koog.agents.core.tools.ToolRegistry
+import ai.koog.agents.core.annotation.ExperimentalAgentsApi
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.longtermmemory.feature.LongTermMemory
+import ai.koog.agents.longtermmemory.ingestion.extraction.FilteringExtractionStrategy
+import ai.koog.agents.longtermmemory.storage.InMemoryRecordStorage
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.StructureFixingParser
@@ -37,6 +41,7 @@ class SupportGraphService(
     private val orderTools: OrderTools,
     private val compressionConfig: HistoryCompressionConfig,
     private val chatMemoryWindow: ChatMemoryWindowProperties,
+    private val ltmStorage: InMemoryRecordStorage,
 ) {
 
     init {
@@ -109,6 +114,27 @@ class SupportGraphService(
         return runAnswerAgentStreaming(input, sessionId, onFrame)
     }
 
+    /**
+     * Step 5-A10 (A2): [LongTermMemory] feature を併設した handle。
+     *
+     * 既存 handle との差:
+     * - `LongTermMemory.Feature` で user message を ingestion + 後続 turn で auto retrieval (SystemPromptAugmenter default)
+     * - ChatMemory も併設したまま (window pre-processor も既存と同じ)
+     *
+     * 観察ポイント:
+     * - ChatMemory は単純 history (window=4 で直近 2 user-assistant pair まで)
+     * - LongTermMemory は ingestion した user 発話の中から「現 turn の prompt に近いもの」を retrieval
+     *   して system prompt に注入する (default: [SystemPromptAugmenter])
+     * - window=4 を超えて古い turn の事実 (例: 名前) が LTM 経由で復元される、が demo の狙い
+     */
+    @OptIn(ExperimentalAgentsApi::class)
+    suspend fun handleWithLtm(userPrompt: String, sessionId: String): String {
+        val skipFaq = looksLikeOrderOperation(userPrompt)
+        log.info("Routing decision (ltm): skipFaqRetrieval={} prompt='{}'", skipFaq, userPrompt.take(60))
+        val input = if (skipFaq) userPrompt else augmentWithFaq(userPrompt)
+        return runAnswerAgentWithLtm(input, sessionId)
+    }
+
     private suspend fun runAnswerAgent(input: String, sessionId: String): String {
         val agent = AIAgent(
             promptExecutor = promptExecutor,
@@ -125,6 +151,38 @@ class SupportGraphService(
             handleEvents {
                 onToolCallStarting { e ->
                     log.info("Tool called: name={} args={}", e.toolName, e.toolArgs)
+                }
+            }
+        }
+        return agent.run(input, sessionId)
+    }
+
+    @OptIn(ExperimentalAgentsApi::class)
+    private suspend fun runAnswerAgentWithLtm(input: String, sessionId: String): String {
+        val agent = AIAgent(
+            promptExecutor = promptExecutor,
+            llmModel = OpenAIModels.Chat.GPT5Nano,
+            systemPrompt = ANSWER_PROMPT,
+            strategy = answerStrategy(),
+            toolRegistry = ToolRegistry { tools(orderTools) },
+        ) {
+            install(ChatMemory.Feature) {
+                chatHistoryProvider(historyProvider)
+                addPreProcessor(WindowSizePreProcessor(chatMemoryWindow.windowSize))
+                addPreProcessor(StripFaqContextPreProcessor())
+            }
+            install(LongTermMemory.Feature) {
+                retrieval {
+                    storage = ltmStorage
+                }
+                ingestion {
+                    storage = ltmStorage
+                    extractionStrategy = FilteringExtractionStrategy(setOf(Message.Role.User))
+                }
+            }
+            handleEvents {
+                onToolCallStarting { e ->
+                    log.info("Tool called (ltm): name={} args={}", e.toolName, e.toolArgs)
                 }
             }
         }
