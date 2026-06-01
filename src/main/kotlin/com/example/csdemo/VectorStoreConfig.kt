@@ -5,7 +5,6 @@ import ai.koog.spring.ai.vectorstore.SpringAiKoogVectorStore
 import kotlinx.coroutines.CoroutineDispatcher
 import org.springframework.ai.document.Document
 import org.springframework.ai.embedding.EmbeddingModel
-import org.springframework.ai.vectorstore.SearchRequest
 import org.springframework.ai.vectorstore.VectorStore
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore
 import org.slf4j.LoggerFactory
@@ -91,29 +90,57 @@ class VectorStoreConfig {
 
     /**
      * 起動時に FAQ が空なら seed する。再起動時は既存データを保持。
-     * `similaritySearch` を 1 回投げて空判定するので、起動のたびに embedding API を 1 回叩く。
+     *
+     * Step 5-B3 (B2 trip): 以前は `vectorStore.similaritySearch(query="seed-check")` の空判定で
+     * 制御していたが、空 DB でも非空 list が返るケースが観察された (b2-s1〜s4 検証時に
+     * `VectorStore already contains data; skipping FAQ seed` ログが出ているのに `SELECT COUNT(*)`
+     * は 0 行のミスマッチ)。`JdbcTemplate` で直接 row count を見る形に変えて idempotent + 確実に。
+     * 副次的に: 起動時の embedding API call も 1 回減る。
      */
     @Bean
-    fun faqSeeder(vectorStore: VectorStore): ApplicationRunner = ApplicationRunner {
-        val probe = vectorStore.similaritySearch(
-            SearchRequest.builder().query("seed-check").topK(1).build(),
-        )
-        if (probe.isNullOrEmpty()) {
+    fun faqSeeder(
+        @Qualifier("vectorStore") vectorStore: VectorStore,
+        jdbcTemplate: JdbcTemplate,
+    ): ApplicationRunner = ApplicationRunner {
+        val count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM vector_store",
+            Long::class.java,
+        ) ?: 0L
+        if (count == 0L) {
             val docs = seedFaqDocuments()
             vectorStore.add(docs)
             log.info("Seeded {} FAQ documents into the VectorStore", docs.size)
         } else {
-            log.info("VectorStore already contains data; skipping FAQ seed")
+            log.info("VectorStore already contains {} rows; skipping FAQ seed", count)
         }
     }
 
+    /**
+     * Step 5-B3 (B2): 1 概念 = 1 doc に細分化し、retrieval の境界判定を効きやすくする。
+     *
+     * 動機 (学び 30): B1 で観察された「破損品の返金処理時間」query が「返金処理」FAQ にヒットして
+     * 通常返金の「5〜7 営業日」を断定回答する問題への対処。元の単一 doc が複数概念を内包していたので、
+     * cosine similarity が「破損品 + 返金」query にも引っかかってしまった。doc を「通常返品の返金日数」
+     * 「破損品の返金 (別ルート)」と分けることで、LLM が「該当 doc が直接答えてるか否か」を判別しやすくする。
+     */
     private fun seedFaqDocuments(): List<Document> = listOf(
-        "返品ポリシー: 商品お届け後 30 日以内であれば理由を問わず返品を受け付けます。未使用かつ元の梱包の状態でお戻しください。",
-        "返金処理: 返品商品を当社で受領後、5〜7 営業日以内に返金を処理します。返金はご購入時の決済方法に対して行われます。",
-        "配送日数: 通常配送は 3〜5 営業日でお届けします。お急ぎ便（追加料金）は 1〜2 営業日です。15 時以降のご注文は翌営業日の発送となります。",
-        "注文の追跡: マイページの注文詳細から、または発送完了メールに記載のトラッキングリンクから、配送状況をご確認いただけます。",
-        "注文のキャンセル: 出荷準備に入る前であれば手数料なしでキャンセル可能です。出荷後の場合は返品手続きとしてご対応ください。",
-        "破損品の対応: 商品が破損して到着した場合は、お受け取りから 7 日以内に写真を添えてサポートまでご連絡ください。無償交換または全額返金で対応します。",
+        // 返品関連
+        "通常返品の受付期間: 商品お届け後 30 日以内であれば、理由を問わず返品を受け付けます。",
+        "通常返品の商品状態: 返品は未使用かつ元の梱包の状態でお戻しいただく必要があります。",
+        // 返金関連
+        "通常返品の返金日数: 通常の返品では、当社で返品商品を受領後 5〜7 営業日以内に返金処理を行います。",
+        "返金の決済方法: 返金は購入時の決済方法（クレジットカード等）に対して行われます。",
+        // 配送関連
+        "通常配送の日数: 通常配送は 3〜5 営業日でお届けします。",
+        "お急ぎ便の日数: お急ぎ便は追加料金で 1〜2 営業日でお届けします。",
+        "当日カットオフ: 15 時以降のご注文は翌営業日の発送となります。",
+        "配送状況の確認方法: 配送状況はマイページの注文詳細、または発送完了メールに記載のトラッキングリンクから確認できます。",
+        // 注文操作
+        "注文のキャンセル可否: 出荷準備に入る前であれば、手数料なしでキャンセル可能です。",
+        "出荷後のキャンセル: 出荷後の注文をキャンセルしたい場合は、返品手続きとしてご対応ください。",
+        // 破損品
+        "破損品の連絡期限: 商品が破損して到着した場合は、お受け取りから 7 日以内に写真を添えてサポートまでご連絡ください。",
+        "破損品の対応内容: 破損品は無償交換または全額返金で対応します。破損品の返金日数は個別にご案内します（通常返品の返金日数とは別ルート）。",
     ).map { Document.builder().text(it).build() }
 
     private companion object {
