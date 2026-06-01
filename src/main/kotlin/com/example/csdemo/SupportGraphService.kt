@@ -257,6 +257,16 @@ class SupportGraphService(
                         summary = "注文 84721 の配送状況を確認したい",
                     ),
                     SupportRequest(
+                        intent = SupportIntent.ORDER_STATUS,
+                        orderId = "92001",
+                        summary = "注文 92001 はいつ届くか確認",
+                    ),
+                    SupportRequest(
+                        intent = SupportIntent.ORDER_STATUS,
+                        orderId = "10500",
+                        summary = "注文 10500 の現在のステータスを知りたい",
+                    ),
+                    SupportRequest(
                         intent = SupportIntent.REFUND,
                         orderId = "84721",
                         summary = "注文 84721 の返金を依頼したい",
