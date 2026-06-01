@@ -50,6 +50,35 @@ class FaqStrippingExtractionStrategyTest {
     }
 
     @Test
+    fun `lastUserOnly true (default) は複数 user message でも直近 1 件のみ返す`() = runBlocking {
+        val messages = listOf(
+            userMessage("Turn 1 の発話"),
+            assistantMessage("Turn 1 の応答"),
+            userMessage("Turn 2 の発話"),
+        )
+
+        val records = FaqStrippingExtractionStrategy().extract(messages)
+
+        assertEquals(1, records.size)
+        assertEquals("Turn 2 の発話", records[0].content)
+    }
+
+    @Test
+    fun `lastUserOnly false は全 user message を返す (FilteringExtractionStrategy 相当)`() = runBlocking {
+        val messages = listOf(
+            userMessage("Turn 1 の発話"),
+            assistantMessage("Turn 1 の応答"),
+            userMessage("Turn 2 の発話"),
+        )
+
+        val records = FaqStrippingExtractionStrategy(lastUserOnly = false).extract(messages)
+
+        assertEquals(2, records.size)
+        assertEquals("Turn 1 の発話", records[0].content)
+        assertEquals("Turn 2 の発話", records[1].content)
+    }
+
+    @Test
     fun `metadata に messageRole と timestampMs が含まれる`() = runBlocking {
         val messages = listOf(userMessage("test"))
 

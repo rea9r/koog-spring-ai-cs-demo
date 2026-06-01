@@ -18,10 +18,21 @@ import ai.koog.rag.base.TextDocument
  *   demo の用途では「お客様の発話を覚える」目的に絞るため User 限定)
  * - content が FAQ block 始まりなら [FaqAugment.stripFaqBlock] で original query 部分だけ抽出
  * - metadata に messageRole / timestampMs を保存 (FilteringExtractionStrategy と互換)
+ *
+ * @param lastUserOnly Step 5-A17 (A17) で追加。`true` (default) のとき直近の Message.User 1 件のみ
+ *   ingest する。`false` だと prompt 内の全 user message を毎回 ingest するため、turn が
+ *   進むごとに過去 message が再保存されて重複が膨らむ (学び 53)。
  */
-internal class FaqStrippingExtractionStrategy : ExtractionStrategy {
+internal class FaqStrippingExtractionStrategy(
+    private val lastUserOnly: Boolean = true,
+) : ExtractionStrategy {
     override suspend fun extract(messages: List<Message>): List<TextDocument> {
-        return messages
+        val sourceMessages = if (lastUserOnly) {
+            listOfNotNull(messages.lastOrNull { it is Message.User })
+        } else {
+            messages.filterIsInstance<Message.User>()
+        }
+        return sourceMessages
             .filterIsInstance<Message.User>()
             .map { msg ->
                 MemoryRecord(
