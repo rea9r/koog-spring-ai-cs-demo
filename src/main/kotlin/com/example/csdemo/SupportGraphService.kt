@@ -286,6 +286,16 @@ class SupportGraphService(
                         orderId = "ABC123",
                         summary = "注文 ABC123 のキャンセルを希望",
                     ),
+                    SupportRequest(
+                        intent = SupportIntent.OTHER,
+                        orderId = "XYZ001",
+                        summary = "注文 XYZ001 を取り消ししたい",
+                    ),
+                    SupportRequest(
+                        intent = SupportIntent.REFUND,
+                        orderId = "12345",
+                        summary = "注文 12345 の代金を払い戻してほしい",
+                    ),
                 ),
                 fixingParser = StructureFixingParser(
                     model = OpenAIModels.Chat.GPT5Nano,

@@ -39,6 +39,13 @@ data class SupportRequest(
 	@property:LLMDescription("お客様が言及した注文 ID。言及がなければ null")
 	val orderId: String? = null,
 
-	@property:LLMDescription("お客様の要望を 1 文で要約したもの")
+	@property:LLMDescription(
+		"""
+		お客様の要望を 1 文で要約したもの。**お客様が実際に発話した内容の範囲だけ**を要約し、
+		入力にない手続き・条件・周辺事情（メールアドレスの照合、返金手続、発送状況の確認 など）を
+		補完して書かない。動詞 + 目的を最小限の語数で。30 字以内が目安。
+		例: "注文 ABC9 のキャンセルを希望" / "返品ポリシーの確認" / "配送状況の問い合わせ"
+		""",
+	)
 	val summary: String,
 )
