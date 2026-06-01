@@ -403,15 +403,21 @@ class SupportGraphService(
         private val log = LoggerFactory.getLogger(SupportGraphService::class.java)
 
         /**
-         * Step 5-A11 (A14): LongTermMemory の [SystemPromptAugmenter] 用日本語テンプレート。
-         * default は英語固定なので、日本語 demo の system prompt に英語が混入しないよう上書きする。
+         * Step 5-A11 (A14) で日本語化、Step 5-A12 (A15) で wording を「あなたは記憶しています」に強化。
+         *
+         * 元 wording 「以下はお客様との過去のやり取りから抽出された情報です」は LLM に context を
+         * 外部参照ソースとして提示する結果になり (学び 57)、Turn 5「私の名前を覚えてますか」に対して
+         * 「現時点では私があなたの名前を記憶しているわけではありません」と回答する原因になっていた。
+         *
+         * 改訂後は「あなたは以下のお客様情報を記憶しています」「自分の知識として活用」と
+         * LLM 自身の記憶として位置付ける wording に変更。
          */
         private val LTM_AUGMENTER_TEMPLATE_JA = """
-            以下はお客様との過去のやり取りから抽出された情報です。応答の参考にしてください。
+            あなたは以下のお客様情報を記憶しています。お客様の質問に答える際は、この記憶を自分の知識として活用してください。
 
             ${PromptAugmenter.RELEVANT_CONTEXT_PLACEHOLDER}
 
-            上記の情報を踏まえて応答してください。情報に答えがない場合は、推測せずに分からない旨を伝えてください。
+            上記の記憶に答えがない場合は、推測せずに分からない旨を伝えてください。
         """.trimIndent()
 
         private val SYSTEM_PROMPT = """
